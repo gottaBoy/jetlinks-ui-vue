@@ -28,7 +28,7 @@ export const useSystemStore = defineStore('system', () => {
     siderWidth: 208,
     headerHeight: 48,
     collapsedWidth: 48,
-    title: '物联网平台', // 浏览器标签页title和系统名称
+    title: 'ZeronEdge平台', // 浏览器标签页title和系统名称
     logo: '/images/login/logo.png',
     layout: 'mix'
   })

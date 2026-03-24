@@ -1,0 +1,19 @@
+{
+  "name": "parallel-driving-manager-ui",
+  "id": "parallel-driving-manager",
+  "version": "1.0.0",
+  "description": "并行驾驶管理",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jetlinks-v2/parallel-driving-manager-ui.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jetlinks-v2/parallel-driving-manager-ui/issues"
+  },
+  "homepage": "https://github.com/jetlinks-v2/parallel-driving-manager-ui#readme",
+  "dependencies": {}
+}
+

@@ -1,0 +1,45 @@
+const routerModules = import.meta.glob('./views/**/index.vue')
+import { defineAsyncComponent } from 'vue';
+import i18n from "@/locales";
+
+const MODULE_CODE = 'parallel-driving'
+
+const getAsyncRoutesMap = () => {
+    const modules = {}
+    Object.keys(routerModules).forEach(item => {
+        const code = item.replace('./views/', '').replace('/index.vue', '')
+        const key = `${code}`
+        modules[key] = routerModules[item]
+    })
+
+    return modules
+}
+
+const getExtraRoutesMap = () => {
+    return {
+        'vehicle-list': {
+            children: [
+                {
+                    code: 'detail',
+                    url: '/detail/:id',
+                    name: '车辆详情',
+                    component: () => import('./views/vehicle-list/Detail/index.vue')
+                }
+            ]
+        }
+    }
+}
+
+const getComponents = () => {
+    return {}
+}
+
+const aliasName = 'parallel-driving'
+
+export default {
+    getAsyncRoutesMap,
+    getExtraRoutesMap,
+    getComponents,
+    aliasName
+}
+

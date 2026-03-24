@@ -1,0 +1,80 @@
+[
+  {
+    "code": "parallel-driving",
+    "id": "parallel-driving",
+    "name": "平行驾驶管理",
+    "icon": "ControlOutlined",
+    "url": "/parallel-driving",
+    "path": "/parallel-driving",
+    "sortIndex": 100,
+    "permissions": [],
+    "children": [
+      {
+        "code": "bind-management",
+        "id": "bind-management",
+        "name": "绑定管理",
+        "icon": "LinkOutlined",
+        "url": "/parallel-driving/bind",
+        "path": "/parallel-driving/bind",
+        "sortIndex": 1,
+        "showPage": [
+          "bind-management"
+        ],
+        "permissions": []
+      },
+      {
+        "code": "control-center",
+        "id": "parallel-driving-control",
+        "name": "平行驾驶控制",
+        "icon": "ControlOutlined",
+        "url": "/parallel-driving/control",
+        "path": "/parallel-driving/control",
+        "sortIndex": 2,
+        "showPage": [
+          "control-center"
+        ],
+        "permissions": []
+      },
+      {
+        "code": "vehicle-list",
+        "id": "vehicle-list",
+        "name": "车辆列表",
+        "icon": "CarOutlined",
+        "url": "/parallel-driving/vehicles",
+        "path": "/parallel-driving/vehicles",
+        "sortIndex": 3,
+        "showPage": [
+          "vehicle-list"
+        ],
+        "permissions": [],
+        "children": [
+          {
+            "code": "detail",
+            "id": "vehicle-list-detail",
+            "name": "车辆详情",
+            "url": "/detail/:id",
+            "path": "/parallel-driving/vehicles/detail/:id",
+            "sortIndex": 1,
+            "isShow": false,
+            "showPage": [],
+            "permissions": []
+          }
+        ]
+      },
+      {
+        "code": "parallel-driving-control-log",
+        "id": "parallel-driving-control-log",
+        "name": "平行驾驶控制日志",
+        "icon": "FileSearchOutlined",
+        "url": "/parallel-driving/control-log",
+        "path": "/parallel-driving/control-log",
+        "sortIndex": 4,
+        "showPage": [
+          "parallel-driving-control-log"
+        ],
+        "permissions": []
+      }
+    ]
+  }
+]
+

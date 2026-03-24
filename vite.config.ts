@@ -73,13 +73,12 @@ export default defineConfig(({ mode }) => {
         ],
         server: {
             host: '0.0.0.0',
+            allowedHosts: ['iot.intra.zeron.ai'],
             port: Number(env.VITE_PORT),
             proxy: {
                 [env.VITE_APP_BASE_API]: {
-                    target: 'http://192.168.32.215:8844',
-                    // target: 'http://192.168.32.233:8601', // 王
-                    // target: 'http://192.168.35.114:8844',
-                    // target: 'http://192.168.33.210:8800',
+                    target: 'http://iot.intra.zeron.ai:8848',
+                    // target: 'http://10.8.201.14:8848',
                     ws: true,
                     changeOrigin: true,
                     rewrite: (path) => path.replace(new RegExp(`^${env.VITE_APP_BASE_API}`), ''),
