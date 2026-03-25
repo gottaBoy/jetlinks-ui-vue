@@ -9,7 +9,7 @@ $main_branch = git symbolic-ref --short HEAD
 Write-Host "Current main branch: $main_branch" -ForegroundColor Yellow
 
 # If dev or master, use master, otherwise use current branch
-if ($main_branch -eq "dev" -or $main_branch -eq "master") {
+if ($main_branch -eq "dev" -or $main_branch -eq "master" -or $main_branch -eq "2.10") {
     $submodule_branch = "master"
 } else {
     $submodule_branch = $main_branch

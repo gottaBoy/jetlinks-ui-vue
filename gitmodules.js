@@ -32,7 +32,7 @@ async function main() {
 
         // 确定子模块分支
         let submoduleBranch;
-        if (currentBranch === 'dev' || currentBranch === 'master') {
+        if (currentBranch === 'dev' || currentBranch === 'master' || currentBranch === '2.10') {
             submoduleBranch = 'master';
         } else {
             submoduleBranch = currentBranch;

@@ -10,3 +10,18 @@
 [submodule "src/modules/authentication-manager-ui"]
 	path = src/modules/authentication-manager-ui
 	url = git@github.com:jetlinks-v2/authentication-manager-ui.git
+[submodule "src/modules/datasource-manager-ui"]
+	path = src/modules/datasource-manager-ui
+	url = git@github.com:jetlinks-v2/datasource-manager-ui.git
+[submodule "src/modules/data-collector-ui"]
+	path = src/modules/data-collector-ui
+	url = git@github.com:jetlinks-v2/data-collector-ui.git
+[submodule "src/modules/network-card-manager-ui"]
+	path = src/modules/network-card-manager-ui
+	url = git@github.com:jetlinks-v2/network-card-manager-ui.git
+[submodule "src/modules/jetlinks-work-order-ui"]
+	path = src/modules/jetlinks-work-order-ui
+	url = git@github.com:jetlinks-v2/jetlinks-work-order-ui.git
+[submodule "src/modules/resources-client-ui"]
+	path = src/modules/resources-client-ui
+	url = git@github.com:jetlinks-v2/resources-client-ui.git
