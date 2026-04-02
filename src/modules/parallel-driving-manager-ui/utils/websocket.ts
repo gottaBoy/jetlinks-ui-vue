@@ -1,25 +1,27 @@
 /**
  * 平行驾驶 WebSocket 工具
  * 用于实时接收车辆状态
+ * 支持指数退避重连（集群模式下节点重启时自动恢复）
  */
 
 import { BASE_API } from '@jetlinks-web/constants'
 import { getToken } from '@jetlinks-web/utils'
 
 let ws: WebSocket | null = null
-let reconnectTimer: NodeJS.Timeout | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let reconnectCount = 0
-const MAX_RECONNECT_COUNT = 10
-const RECONNECT_DELAY = 3000
+let intentionallyClosed = false
 
-/**
- * 初始化 WebSocket 连接
- * @param vehicleId 车辆设备ID（可选）
- * @param cockpitId 驾驶舱设备ID（可选）
- * @param onMessage 消息回调
- * @param onError 错误回调
- * @param onClose 关闭回调
- */
+const BASE_DELAY_MS = 1000
+const MAX_DELAY_MS = 30000
+const JITTER_FACTOR = 0.3
+
+function getReconnectDelay(): number {
+  const exponential = Math.min(BASE_DELAY_MS * Math.pow(2, reconnectCount), MAX_DELAY_MS)
+  const jitter = exponential * JITTER_FACTOR * (Math.random() * 2 - 1)
+  return Math.max(BASE_DELAY_MS, exponential + jitter)
+}
+
 export const initParallelDrivingWebSocket = (
   vehicleId?: string,
   cockpitId?: string,
@@ -35,11 +37,11 @@ export const initParallelDrivingWebSocket = (
   }
 
   if (ws && ws.readyState === WebSocket.OPEN) {
-    console.log('WebSocket 已连接，复用现有连接')
     return ws
   }
 
-  // 构建查询参数
+  intentionallyClosed = false
+
   const params = new URLSearchParams()
   if (vehicleId) {
     params.append('vehicleId', vehicleId)
@@ -68,9 +70,7 @@ export const initParallelDrivingWebSocket = (
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
-        if (onMessage) {
-          onMessage(data)
-        }
+        onMessage?.(data)
       } catch (error) {
         console.error('解析 WebSocket 消息失败:', error)
       }
@@ -78,34 +78,28 @@ export const initParallelDrivingWebSocket = (
 
     ws.onerror = (error) => {
       console.error('平行驾驶 WebSocket 错误:', error)
-      if (onError) {
-        onError(error)
-      }
-      // 尝试重连
-      reconnect(vehicleId, cockpitId, onMessage, onError, onClose, onOpen)
+      onError?.(error)
     }
 
     ws.onclose = () => {
-      console.log('平行驾驶 WebSocket 连接关闭')
       ws = null
-      if (onClose) {
-        onClose()
+      onClose?.()
+      if (!intentionallyClosed) {
+        scheduleReconnect(vehicleId, cockpitId, onMessage, onError, onClose, onOpen)
       }
-      // 尝试重连
-      reconnect(vehicleId, cockpitId, onMessage, onError, onClose, onOpen)
     }
 
     return ws
   } catch (error) {
     console.error('创建 WebSocket 连接失败:', error)
+    if (!intentionallyClosed) {
+      scheduleReconnect(vehicleId, cockpitId, onMessage, onError, onClose, onOpen)
+    }
     return null
   }
 }
 
-/**
- * 重连 WebSocket
- */
-const reconnect = (
+const scheduleReconnect = (
   vehicleId?: string,
   cockpitId?: string,
   onMessage?: (data: any) => void,
@@ -113,23 +107,24 @@ const reconnect = (
   onClose?: () => void,
   onOpen?: () => void
 ) => {
-  if (reconnectCount >= MAX_RECONNECT_COUNT) {
-    console.error('WebSocket 重连次数已达上限，停止重连')
-    return
-  }
+  if (intentionallyClosed) return
 
+  const delay = getReconnectDelay()
   reconnectCount++
-  console.log(`WebSocket 重连中... (${reconnectCount}/${MAX_RECONNECT_COUNT})`)
+
+  console.log(
+    `WebSocket 重连中... 第 ${reconnectCount} 次，${Math.round(delay / 1000)}s 后重试`
+  )
 
   reconnectTimer = setTimeout(() => {
-    initParallelDrivingWebSocket(vehicleId, cockpitId, onMessage, onError, onClose, onOpen)
-  }, RECONNECT_DELAY * reconnectCount)
+    if (!intentionallyClosed) {
+      initParallelDrivingWebSocket(vehicleId, cockpitId, onMessage, onError, onClose, onOpen)
+    }
+  }, delay)
 }
 
-/**
- * 关闭 WebSocket 连接
- */
 export const closeParallelDrivingWebSocket = () => {
+  intentionallyClosed = true
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
@@ -139,13 +134,9 @@ export const closeParallelDrivingWebSocket = () => {
   if (ws) {
     ws.close()
     ws = null
-    console.log('平行驾驶 WebSocket 连接已关闭')
   }
 }
 
-/**
- * 检查 WebSocket 连接状态
- */
 export const isWebSocketConnected = (): boolean => {
   return ws !== null && ws.readyState === WebSocket.OPEN
 }

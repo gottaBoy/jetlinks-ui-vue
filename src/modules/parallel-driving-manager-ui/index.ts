@@ -23,7 +23,7 @@ const getExtraRoutesMap = () => {
                     code: 'detail',
                     url: '/detail/:id',
                     name: '车辆详情',
-                    component: () => import('./views/vehicle-list/Detail/index.vue')
+                    component: () => import('./views/vehicle-list/detail/index.vue')
                 }
             ]
         }

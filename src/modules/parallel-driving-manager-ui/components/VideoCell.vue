@@ -15,15 +15,22 @@
         autoplay
       />
       <div v-else class="video-placeholder">{{ $t('parallel-driving.vehicle-detail.video-loading') }}</div>
-      <span class="video-badge">{{ label }}</span>
+      <span class="video-badge" :title="label">
+        <svg v-if="direction === 'front'" viewBox="0 0 16 16" class="vb-icon"><path d="M8 3l5 8H3z"/></svg>
+        <svg v-else-if="direction === 'back'" viewBox="0 0 16 16" class="vb-icon"><path d="M8 13l5-8H3z"/></svg>
+        <svg v-else-if="direction === 'left'" viewBox="0 0 16 16" class="vb-icon"><path d="M3 8l8-5v10z"/></svg>
+        <svg v-else-if="direction === 'right'" viewBox="0 0 16 16" class="vb-icon"><path d="M13 8l-8 5V3z"/></svg>
+        <svg v-else viewBox="0 0 16 16" class="vb-icon"><circle cx="8" cy="8" r="3"/></svg>
+      </span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import WebRtcPlayer from './WebRtcPlayer.vue'
 
-defineProps<{
+const props = defineProps<{
   label: string
   baseUrl: string
   app: string
@@ -32,6 +39,15 @@ defineProps<{
   url: string
   isFront?: boolean
 }>()
+
+const direction = computed(() => {
+  const l = props.label?.toLowerCase() || ''
+  if (l.includes('front') || l.includes('前')) return 'front'
+  if (l.includes('back') || l.includes('后')) return 'back'
+  if (l.includes('left') || l.includes('左')) return 'left'
+  if (l.includes('right') || l.includes('右')) return 'right'
+  return ''
+})
 </script>
 
 <style scoped>
@@ -44,26 +60,32 @@ defineProps<{
 .video-wrapper {
   flex: 1;
   position: relative;
-  aspect-ratio: 16 / 9;
-  min-height: 120px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .video-badge {
   position: absolute;
-  top: 6px;
-  left: 6px;
+  bottom: 4px;
+  left: 4px;
   z-index: 3;
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
-  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
   border-radius: 4px;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  line-height: 1.4;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   pointer-events: none;
   user-select: none;
+}
+
+.vb-icon {
+  width: 12px;
+  height: 12px;
+  fill: rgba(255, 255, 255, 0.55);
 }
 
 .video-placeholder {

@@ -98,9 +98,9 @@
             <div class="rc-group rc-group-layout">
               <span class="rc-label">布局</span>
               <a-radio-group v-model:value="layoutMode" size="small" class="rc-layout-radio">
-                <a-radio-button value="a">A 2×2</a-radio-button>
-                <a-radio-button value="b">B 前主</a-radio-button>
-                <a-radio-button value="c">C 前全宽</a-radio-button>
+                <a-radio-button value="d">驾驶</a-radio-button>
+                <a-radio-button value="a">2×2</a-radio-button>
+                <a-radio-button value="c">前全宽</a-radio-button>
               </a-radio-group>
             </div>
 
@@ -166,12 +166,116 @@
 
           <!-- 视频区域 -->
           <div v-if="isControlling" ref="videoSectionRef" class="video-section" :class="`layout-mode-${layoutMode}`">
+            <!-- 驾驶视图：前视自适应宽度 + 右侧三路，动态计算最优比例 -->
+            <template v-if="layoutMode === 'd'">
+              <div class="layout-d">
+                <div class="layout-d-main" :style="{ flex: drivingFrontFlex }">
+                  <div class="video-with-hud">
+                    <div class="hud-turn-overlay">
+                      <div class="hud-ts-wrap hud-ts-wrap-left" :class="{ 'is-on': isLeftTurnOn, 'is-hazard': isHazardOn }">
+                        <svg class="hud-ts-arrow" viewBox="0 0 48 32"><path d="M20 2L2 16l18 14v-9h26v-10H20V2z"/></svg>
+                        <span class="hud-ts-label">LEFT</span>
+                      </div>
+                      <div class="hud-ts-wrap hud-ts-wrap-right" :class="{ 'is-on': isRightTurnOn, 'is-hazard': isHazardOn }">
+                        <svg class="hud-ts-arrow" viewBox="0 0 48 32"><path d="M28 2l18 14-18 14v-9H2v-10h26V2z"/></svg>
+                        <span class="hud-ts-label">RIGHT</span>
+                      </div>
+                    </div>
+                    <VideoCell
+                      :label="$t('parallel-driving.vehicle-detail.video-front')"
+                      :base-url="VIDEO_CONFIG.baseUrl"
+                      :app="VIDEO_CONFIG.app"
+                      :protocol="VIDEO_CONFIG.protocol"
+                      :stream="getVideoStream('front')"
+                      :url="getVideoUrl('front')"
+                    />
+                    <div class="status-hud status-hud-xiaomi">
+                      <div class="hud-left">
+                        <div class="hud-gear-row">
+                          <div class="hud-drivemode-pair" title="驾驶模式：M=Manual(0)，A=Auto(1)">
+                            <span class="hud-dm-circle" :class="hudDriveModeClass(vehicleStatus.drivemode)">{{ hudDriveModeChar(vehicleStatus.drivemode) }}</span>
+                          </div>
+                          <div class="hud-gear-sep" aria-hidden="true"></div>
+                          <span v-for="(ch, idx) in HUD_GEAR_LETTERS" :key="ch" class="hud-gear-char" :class="{ active: isHudGearActive(idx, vehicleStatus.gear) }">{{ ch }}</span>
+                        </div>
+                      </div>
+                      <div class="hud-center">
+                        <div class="hud-speed-block">
+                          <span class="hud-speed-num">{{ formatNumber(vehicleStatus.speed, 0, '--') }}</span>
+                          <span class="hud-speed-unit">km/h</span>
+                        </div>
+                        <div class="hud-bar"><div class="hud-bar-fill" :style="{ width: speedBarPercent }"></div></div>
+                      </div>
+                      <div class="hud-right">
+                        <div class="hud-stat">
+                          <span class="hud-stat-label">转向</span>
+                          <span class="hud-stat-value">{{ formatNumber(vehicleStatus.steering, 0, '--') }}</span>
+                        </div>
+                        <span class="hud-stat-sep" />
+                        <div class="hud-stat">
+                          <span class="hud-stat-label">油门</span>
+                          <span class="hud-stat-value">{{ formatPercentInt(vehicleStatus.accelerator) }}</span>
+                        </div>
+                        <span class="hud-stat-sep" />
+                        <div class="hud-stat">
+                          <span class="hud-stat-label">制动</span>
+                          <span class="hud-stat-value hud-stat-brake" :class="{ 'is-active': Number(vehicleStatus.brake) > 0 }">{{ formatPercentInt(vehicleStatus.brake) }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="layout-d-side" :style="{ flex: drivingSideFlex }">
+                  <div class="layout-d-cell">
+                    <VideoCell
+                      :label="$t('parallel-driving.vehicle-detail.video-back')"
+                      :base-url="VIDEO_CONFIG.baseUrl"
+                      :app="VIDEO_CONFIG.app"
+                      :protocol="VIDEO_CONFIG.protocol"
+                      :stream="getVideoStream('back')"
+                      :url="getVideoUrl('back')"
+                    />
+                  </div>
+                  <div class="layout-d-cell">
+                    <VideoCell
+                      :label="$t('parallel-driving.vehicle-detail.video-left')"
+                      :base-url="VIDEO_CONFIG.baseUrl"
+                      :app="VIDEO_CONFIG.app"
+                      :protocol="VIDEO_CONFIG.protocol"
+                      :stream="getVideoStream('left')"
+                      :url="getVideoUrl('left')"
+                    />
+                  </div>
+                  <div class="layout-d-cell">
+                    <VideoCell
+                      :label="$t('parallel-driving.vehicle-detail.video-right')"
+                      :base-url="VIDEO_CONFIG.baseUrl"
+                      :app="VIDEO_CONFIG.app"
+                      :protocol="VIDEO_CONFIG.protocol"
+                      :stream="getVideoStream('right')"
+                      :url="getVideoUrl('right')"
+                    />
+                  </div>
+                </div>
+              </div>
+            </template>
             <!-- 方案 A：2×2，每行 50%，每格 960:768 -->
-            <template v-if="layoutMode === 'a'">
+            <template v-else-if="layoutMode === 'a'">
               <div class="layout-a">
                 <div class="layout-a-row1">
                   <div class="layout-a-col layout-a-col-front">
                     <div class="video-with-hud">
+                      <!-- 转向灯：上半部左右对称 -->
+                      <div class="hud-turn-overlay">
+                        <div class="hud-ts-wrap hud-ts-wrap-left" :class="{ 'is-on': isLeftTurnOn, 'is-hazard': isHazardOn }">
+                          <svg class="hud-ts-arrow" viewBox="0 0 48 32"><path d="M20 2L2 16l18 14v-9h26v-10H20V2z"/></svg>
+                          <span class="hud-ts-label">LEFT</span>
+                        </div>
+                        <div class="hud-ts-wrap hud-ts-wrap-right" :class="{ 'is-on': isRightTurnOn, 'is-hazard': isHazardOn }">
+                          <svg class="hud-ts-arrow" viewBox="0 0 48 32"><path d="M28 2l18 14-18 14v-9H2v-10h26V2z"/></svg>
+                          <span class="hud-ts-label">RIGHT</span>
+                        </div>
+                      </div>
                       <VideoCell
                         :label="$t('parallel-driving.vehicle-detail.video-front')"
                       :base-url="VIDEO_CONFIG.baseUrl"
@@ -264,10 +368,21 @@
             </template>
             <!-- 方案 B：前主左，右侧后左右三路等高 -->
             <template v-else-if="layoutMode === 'b'">
-              <a-row :gutter="8" class="video-grid layout-b-row">
+              <a-row :gutter="2" class="video-grid layout-b-row">
                 <a-col :span="18">
                   <div class="video-box video-box-front">
                     <div class="video-wrapper">
+                      <!-- 转向灯：上半部左右对称 -->
+                      <div class="hud-turn-overlay">
+                        <div class="hud-ts-wrap hud-ts-wrap-left" :class="{ 'is-on': isLeftTurnOn, 'is-hazard': isHazardOn }">
+                          <svg class="hud-ts-arrow" viewBox="0 0 48 32"><path d="M20 2L2 16l18 14v-9h26v-10H20V2z"/></svg>
+                          <span class="hud-ts-label">LEFT</span>
+                        </div>
+                        <div class="hud-ts-wrap hud-ts-wrap-right" :class="{ 'is-on': isRightTurnOn, 'is-hazard': isHazardOn }">
+                          <svg class="hud-ts-arrow" viewBox="0 0 48 32"><path d="M28 2l18 14-18 14v-9H2v-10h26V2z"/></svg>
+                          <span class="hud-ts-label">RIGHT</span>
+                        </div>
+                      </div>
                       <WebRtcPlayer
                         v-if="VIDEO_CONFIG.protocol === 'webrtc' && getVideoStream('front')"
                         :base-url="VIDEO_CONFIG.baseUrl"
@@ -332,7 +447,7 @@
                   </div>
                 </a-col>
                 <a-col :span="6" class="layout-b-right-col">
-                  <a-row :gutter="8" class="video-grid layout-b-inner-row">
+                  <a-row :gutter="2" class="video-grid layout-b-inner-row">
                     <a-col :span="24">
                       <VideoCell
                         :label="$t('parallel-driving.vehicle-detail.video-back')"
@@ -374,6 +489,17 @@
                 <div class="layout-c-row1">
                   <div class="layout-c-row1-inner">
                     <div class="layout-c-video-wrap">
+                      <!-- 转向灯：上半部左右对称 -->
+                      <div class="hud-turn-overlay">
+                        <div class="hud-ts-wrap hud-ts-wrap-left" :class="{ 'is-on': isLeftTurnOn, 'is-hazard': isHazardOn }">
+                          <svg class="hud-ts-arrow" viewBox="0 0 48 32"><path d="M20 2L2 16l18 14v-9h26v-10H20V2z"/></svg>
+                          <span class="hud-ts-label">LEFT</span>
+                        </div>
+                        <div class="hud-ts-wrap hud-ts-wrap-right" :class="{ 'is-on': isRightTurnOn, 'is-hazard': isHazardOn }">
+                          <svg class="hud-ts-arrow" viewBox="0 0 48 32"><path d="M28 2l18 14-18 14v-9H2v-10h26V2z"/></svg>
+                          <span class="hud-ts-label">RIGHT</span>
+                        </div>
+                      </div>
                       <WebRtcPlayer
                         v-if="VIDEO_CONFIG.protocol === 'webrtc' && getVideoStream('front')"
                         :base-url="VIDEO_CONFIG.baseUrl"
@@ -482,7 +608,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { onlyMessage } from '@/utils/comm'
@@ -509,10 +635,11 @@ const cockpitLoading = ref(false)
 const cockpitDevices = ref<Array<{ label: string; value: string }>>([])
 const selectedVideoDirections = ref<string[]>(['front', 'back', 'left', 'right'])
 const LAYOUT_STORAGE_KEY = 'parallel-driving-layout-mode'
-const layoutMode = ref<'a' | 'b' | 'c'>(
+const layoutMode = ref<'a' | 'b' | 'c' | 'd'>(
   (() => {
     const v = localStorage.getItem(LAYOUT_STORAGE_KEY) as string
-    return (v === 'a' || v === 'b' || v === 'c') ? v : 'a'
+    if (v === 'b') return 'd'
+    return (v === 'a' || v === 'c' || v === 'd') ? v : 'd'
   })()
 )
 watch(layoutMode, (v) => localStorage.setItem(LAYOUT_STORAGE_KEY, v))
@@ -524,6 +651,37 @@ const vehicleStatus = ref<Record<string, any>>({})
 const emergencyStopping = ref(false)
 const isFullscreen = ref(false)
 const fullscreenRef = ref<HTMLElement | null>(null)
+const videoSectionRef = ref<HTMLElement | null>(null)
+
+const VIDEO_ASPECT_RATIO = 960 / 768
+
+const sectionSize = reactive({ w: 0, h: 0 })
+let sectionRO: ResizeObserver | null = null
+
+const drivingFrontFlex = computed(() => {
+  if (!sectionSize.w || !sectionSize.h) return 703
+  const containerAR = sectionSize.w / sectionSize.h
+  const fraction = VIDEO_ASPECT_RATIO / containerAR
+  return Math.round(Math.min(0.85, Math.max(0.5, fraction)) * 1000)
+})
+const drivingSideFlex = computed(() => 1000 - drivingFrontFlex.value)
+
+watch(isControlling, (v) => {
+  if (v) {
+    nextTick(() => {
+      if (videoSectionRef.value) {
+        sectionRO = new ResizeObserver((entries) => {
+          const r = entries[0]?.contentRect
+          if (r) { sectionSize.w = r.width; sectionSize.h = r.height }
+        })
+        sectionRO.observe(videoSectionRef.value)
+      }
+    })
+  } else {
+    sectionRO?.disconnect()
+    sectionRO = null
+  }
+})
 
 /** 全屏时下拉挂到全屏容器内，便于 scoped 深色样式命中 */
 const cockpitSelectGetPopupContainer = (triggerNode: HTMLElement) => {
@@ -619,6 +777,10 @@ const speedBarPercent = computed(() => {
   const pct = Math.min(100, (Number(s) / HUD_SPEED_MAX) * 100)
   return `${Math.round(pct)}%`
 })
+
+const isLeftTurnOn = computed(() => Number(vehicleStatus.value?.leftTurnSignal) === 1)
+const isRightTurnOn = computed(() => Number(vehicleStatus.value?.rightTurnSignal) === 1)
+const isHazardOn = computed(() => isLeftTurnOn.value && isRightTurnOn.value)
 
 /** 踏板等：0~1 或 0~100 → 整数字符串，无数据为 -- */
 const formatPercentInt = (val: any) => {
@@ -733,6 +895,12 @@ const applyChassisStatusToVehicleStatus = (properties: Record<string, any>) => {
     const dm = Number(drivemodeRaw)
     if (Number.isFinite(dm)) patch.drivemode = dm
   }
+
+  // 转向灯：cgw_left_turn_light_sts / cgw_right_turn_light_sts (0=off, 1=on)
+  const leftTurn = raw.cgw_left_turn_light_sts
+  const rightTurn = raw.cgw_right_turn_light_sts
+  if (leftTurn != null) patch.leftTurnSignal = Number(leftTurn)
+  if (rightTurn != null) patch.rightTurnSignal = Number(rightTurn)
 
   return patch
 }
@@ -1014,6 +1182,7 @@ onUnmounted(() => {
   if (document.fullscreenElement) document.exitFullscreen?.()
   stopPolling()
   closeWebSocket()
+  sectionRO?.disconnect()
 })
 </script>
 
@@ -1382,16 +1551,12 @@ onUnmounted(() => {
 
 /* hud-metrics / hud-chassis-plain 已替换为 hud-stat 结构 */
 
-/* 全屏：前视 HUD 贴底加渐变衬底，亮/暗画面、加载中黑屏都更易读 */
+/* 全屏：前视 HUD 尺寸放大回全屏比例 */
 .fullscreen-target:fullscreen .video-section .status-hud-xiaomi,
 .fullscreen-target:-webkit-full-screen .video-section .status-hud-xiaomi,
 .fullscreen-target:-moz-full-screen .video-section .status-hud-xiaomi {
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 26px 28px 18px;
-  margin: 0;
-  box-sizing: border-box;
+  padding: 28px 48px 16px;
+  gap: 32px;
   background: linear-gradient(
     to top,
     rgba(0, 0, 0, 0.82) 0%,
@@ -1400,10 +1565,85 @@ onUnmounted(() => {
     transparent 100%
   );
 }
+.fullscreen-target:fullscreen .video-section .hud-speed-num,
+.fullscreen-target:-webkit-full-screen .video-section .hud-speed-num,
+.fullscreen-target:-moz-full-screen .video-section .hud-speed-num {
+  font-size: 56px;
+}
+.fullscreen-target:fullscreen .video-section .hud-gear-char,
+.fullscreen-target:-webkit-full-screen .video-section .hud-gear-char,
+.fullscreen-target:-moz-full-screen .video-section .hud-gear-char {
+  font-size: 30px;
+}
+
+.fullscreen-target:fullscreen .video-section .hud-ts-arrow,
+.fullscreen-target:-webkit-full-screen .video-section .hud-ts-arrow,
+.fullscreen-target:-moz-full-screen .video-section .hud-ts-arrow {
+  width: 64px;
+  height: 44px;
+}
+
+.fullscreen-target:fullscreen .video-section .hud-ts-label,
+.fullscreen-target:-webkit-full-screen .video-section .hud-ts-label,
+.fullscreen-target:-moz-full-screen .video-section .hud-ts-label {
+  font-size: 11px;
+}
+
+.fullscreen-target:fullscreen .video-section .hud-turn-overlay,
+.fullscreen-target:-webkit-full-screen .video-section .hud-turn-overlay,
+.fullscreen-target:-moz-full-screen .video-section .hud-turn-overlay {
+  bottom: 90px;
+  padding: 0 48px;
+}
+.fullscreen-target:fullscreen .video-section .hud-ts-arrow,
+.fullscreen-target:-webkit-full-screen .video-section .hud-ts-arrow,
+.fullscreen-target:-moz-full-screen .video-section .hud-ts-arrow {
+  width: 56px;
+  height: 38px;
+}
+.fullscreen-target:fullscreen .video-section .hud-stat-value,
+.fullscreen-target:-webkit-full-screen .video-section .hud-stat-value,
+.fullscreen-target:-moz-full-screen .video-section .hud-stat-value {
+  font-size: 24px;
+}
+.fullscreen-target:fullscreen .video-section .hud-stat-label,
+.fullscreen-target:-webkit-full-screen .video-section .hud-stat-label,
+.fullscreen-target:-moz-full-screen .video-section .hud-stat-label {
+  font-size: 11px;
+}
+.fullscreen-target:fullscreen .video-section .hud-stat,
+.fullscreen-target:-webkit-full-screen .video-section .hud-stat,
+.fullscreen-target:-moz-full-screen .video-section .hud-stat {
+  min-width: 52px;
+}
+.fullscreen-target:fullscreen .video-section .hud-stat-sep,
+.fullscreen-target:-webkit-full-screen .video-section .hud-stat-sep,
+.fullscreen-target:-moz-full-screen .video-section .hud-stat-sep {
+  height: 30px;
+  margin: 0 12px;
+}
+.fullscreen-target:fullscreen .video-section .hud-bar,
+.fullscreen-target:-webkit-full-screen .video-section .hud-bar,
+.fullscreen-target:-moz-full-screen .video-section .hud-bar {
+  width: 220px;
+  height: 4px;
+}
+.fullscreen-target:fullscreen .video-section .hud-speed-unit,
+.fullscreen-target:-webkit-full-screen .video-section .hud-speed-unit,
+.fullscreen-target:-moz-full-screen .video-section .hud-speed-unit {
+  font-size: 16px;
+}
+.fullscreen-target:fullscreen .video-section .hud-dm-circle,
+.fullscreen-target:-webkit-full-screen .video-section .hud-dm-circle,
+.fullscreen-target:-moz-full-screen .video-section .hud-dm-circle {
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+}
 
 .fullscreen-target:-webkit-full-screen {
-  background: #0d0d0d !important;
-  padding: 16px;
+  background: #0a0a0a !important;
+  padding: 4px 4px 0;
   margin: 0;
   width: 100%;
   height: 100%;
@@ -1414,8 +1654,8 @@ onUnmounted(() => {
 }
 
 .fullscreen-target:-moz-full-screen {
-  background: #0d0d0d !important;
-  padding: 16px;
+  background: #0a0a0a !important;
+  padding: 4px 4px 0;
   margin: 0;
   width: 100%;
   height: 100%;
@@ -1427,9 +1667,9 @@ onUnmounted(() => {
 
 .video-box {
   background: #000;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
-  margin-bottom: 16px;
+  margin-bottom: 2px;
   display: flex;
   flex-direction: column;
 }
@@ -1437,14 +1677,21 @@ onUnmounted(() => {
 /* HUD：小米天际屏风格 - 左档位 | 中速度+进度条(焦点) | 右次要信息+底线 */
 .status-hud-xiaomi {
   position: absolute;
-  left: 24px;
-  right: 24px;
-  bottom: 20px;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 2;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 32px;
+  gap: 16px;
+  padding: 20px 32px 10px;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.72) 0%,
+    rgba(0, 0, 0, 0.35) 50%,
+    transparent 100%
+  );
   pointer-events: none;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
   font-variant-numeric: tabular-nums;
@@ -1475,12 +1722,12 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   box-sizing: border-box;
   border: 2px solid rgba(255, 255, 255, 0.28);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0;
   color: rgba(255, 255, 255, 0.32);
@@ -1528,7 +1775,7 @@ onUnmounted(() => {
 }
 
 .status-hud-xiaomi .hud-gear-char {
-  font-size: 28px;
+  font-size: 20px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.32);
   letter-spacing: 0.02em;
@@ -1552,6 +1799,90 @@ onUnmounted(() => {
   gap: 6px;
 }
 
+/* ── Turn Signal Overlay: top of front camera, left/right symmetric ── */
+.hud-turn-overlay {
+  position: absolute;
+  bottom: 60px;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 0 32px;
+  pointer-events: none;
+}
+
+.hud-ts-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.12;
+  transition: opacity 0.15s ease;
+}
+
+.hud-ts-wrap.is-on {
+  opacity: 1;
+  animation: hud-ts-blink 0.8s step-end infinite;
+}
+
+.hud-ts-wrap.is-on .hud-ts-arrow {
+  fill: #22c55e;
+  filter: drop-shadow(0 0 10px rgba(34, 197, 94, 0.7))
+          drop-shadow(0 0 24px rgba(34, 197, 94, 0.35));
+}
+
+.hud-ts-wrap.is-on .hud-ts-label {
+  color: #22c55e;
+  text-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+}
+
+.hud-ts-wrap.is-hazard {
+  animation-duration: 0.6s;
+}
+
+.hud-ts-wrap.is-hazard .hud-ts-arrow {
+  fill: #f59e0b;
+  filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.7))
+          drop-shadow(0 0 24px rgba(245, 158, 11, 0.35));
+}
+
+.hud-ts-wrap.is-hazard .hud-ts-label {
+  color: #f59e0b;
+  text-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
+}
+
+.hud-ts-arrow {
+  width: 32px;
+  height: 22px;
+  fill: rgba(255, 255, 255, 0.85);
+  transition: fill 0.15s ease, filter 0.15s ease;
+}
+
+.hud-ts-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+  transition: color 0.15s ease;
+}
+
+@keyframes hud-ts-blink {
+  0%   { opacity: 1; }
+  50%  { opacity: 0.08; }
+  100% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-ts-wrap.is-on,
+  .hud-ts-wrap.is-hazard {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 .status-hud-xiaomi .hud-speed-block {
   display: flex;
   align-items: baseline;
@@ -1560,28 +1891,28 @@ onUnmounted(() => {
 }
 
 .status-hud-xiaomi .hud-speed-num {
-  font-size: 52px;
+  font-size: 36px;
   font-weight: 700;
   color: #fff;
   line-height: 1;
   letter-spacing: -0.04em;
   text-shadow:
-    0 0 32px rgba(255, 255, 255, 0.22),
-    0 2px 8px rgba(0, 0, 0, 0.45);
+    0 0 24px rgba(255, 255, 255, 0.22),
+    0 2px 6px rgba(0, 0, 0, 0.45);
 }
 
 .status-hud-xiaomi .hud-speed-unit {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.65);
   letter-spacing: 0.04em;
   text-transform: lowercase;
-  padding-bottom: 6px;
+  padding-bottom: 4px;
 }
 
 .status-hud-xiaomi .hud-bar {
-  width: 200px;
-  height: 4px;
+  width: 120px;
+  height: 3px;
   background: rgba(255, 255, 255, 0.12);
   border-radius: 2px;
   overflow: hidden;
@@ -1606,12 +1937,12 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  min-width: 48px;
+  gap: 1px;
+  min-width: 36px;
 }
 
 .status-hud-xiaomi .hud-stat-label {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.42);
   letter-spacing: 0.06em;
@@ -1620,7 +1951,7 @@ onUnmounted(() => {
 }
 
 .status-hud-xiaomi .hud-stat-value {
-  font-size: 22px;
+  font-size: 16px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.92);
   font-variant-numeric: tabular-nums;
@@ -1639,8 +1970,8 @@ onUnmounted(() => {
 .status-hud-xiaomi .hud-stat-sep {
   display: inline-block;
   width: 1px;
-  height: 28px;
-  margin: 0 10px;
+  height: 20px;
+  margin: 0 6px;
   background: linear-gradient(
     180deg,
     transparent 0%,
@@ -1671,7 +2002,7 @@ onUnmounted(() => {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  gap: 4px;
+  gap: 2px;
 }
 
 .layout-a-row1,
@@ -1679,7 +2010,7 @@ onUnmounted(() => {
   flex: 1 1 0;
   min-height: 0;
   display: flex;
-  gap: 4px;
+  gap: 2px;
 }
 
 .layout-a-col {
@@ -1688,9 +2019,9 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: #000;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .layout-a-col-front .video-with-hud {
@@ -1712,7 +2043,6 @@ onUnmounted(() => {
 .layout-a-col .video-wrapper {
   flex: 1;
   min-height: 0;
-  aspect-ratio: 960 / 768;
   max-width: 100%;
   max-height: 100%;
   position: relative;
@@ -1737,10 +2067,120 @@ onUnmounted(() => {
 }
 
 .video-grid .ant-col {
-  margin-bottom: 16px;
+  margin-bottom: 2px;
 }
 
 .fullscreen-target:not(:fullscreen) .video-section.layout-mode-a {
+  flex: 1;
+  min-height: 0;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  border-top: none !important;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ━━━ 驾驶视图：前视自适应 + 侧栏，动态比例 ━━━ */
+.layout-d {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  gap: 2px;
+}
+.layout-d-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.layout-d-main .video-with-hud {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.layout-d-main .video-box {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.layout-d-main .video-wrapper,
+.layout-d-main :deep(.video-wrapper) {
+  flex: 1;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+.layout-d-main .video-wrapper .webrtc-player,
+.layout-d-main .video-wrapper :deep(.webrtc-player),
+.layout-d-main .video-wrapper .video-placeholder,
+.layout-d-main .video-wrapper :deep([class*="player"]) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.layout-d-main video,
+.layout-d-main :deep(video) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.layout-d-side {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.layout-d-cell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.layout-d-cell .video-box {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.layout-d-cell .video-wrapper,
+.layout-d-cell :deep(.video-wrapper) {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.layout-d-cell .video-wrapper .webrtc-player,
+.layout-d-cell .video-wrapper :deep(.webrtc-player),
+.layout-d-cell .video-wrapper .video-placeholder,
+.layout-d-cell .video-wrapper :deep([class*="player"]) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.layout-d-cell video,
+.layout-d-cell :deep(video) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.fullscreen-target:not(:fullscreen) .video-section.layout-mode-d {
   flex: 1;
   min-height: 0;
   margin-top: 0 !important;
@@ -1814,7 +2254,7 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   height: 100%;
-  gap: 4px;
+  gap: 2px;
 }
 .layout-c-row1 {
   flex: 1 1 0;
@@ -1823,9 +2263,9 @@ onUnmounted(() => {
   justify-content: center;
   align-items: center;
   background: #000;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 .layout-c-row1-inner {
   display: flex;
@@ -1864,7 +2304,7 @@ onUnmounted(() => {
   flex: 1 1 0;
   min-height: 0;
   display: flex;
-  gap: 4px;
+  gap: 2px;
 }
 .layout-c-col {
   flex: 1;
@@ -1872,9 +2312,9 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: #000;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 .layout-c-col .video-box {
   flex: 1;
@@ -2117,18 +2557,18 @@ onUnmounted(() => {
   /* ── 控制条 ── */
   .remote-control-form {
     flex-shrink: 0;
-    margin-bottom: 8px !important;
-    padding: 0 20px;
-    height: 48px;
+    margin-bottom: 4px !important;
+    padding: 0 12px;
+    height: 42px;
     display: flex !important;
     align-items: center;
-    gap: 0 20px;
+    gap: 0 12px;
     background: @rc-bg;
-    border-radius: 12px;
+    border-radius: 8px;
     border: 1px solid @rc-border;
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.04) inset,
-      0 4px 20px rgba(0, 0, 0, 0.50);
+      0 2px 12px rgba(0, 0, 0, 0.50);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
   }

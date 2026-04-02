@@ -252,6 +252,22 @@ export const setSpeed = (params: {
 }
 
 /**
+ * 获取车辆 OTA 状态（从设备属性中读取 firmware_version, ota_status 等）
+ */
+export const getVehicleOTAStatus = (deviceId: string) => {
+  return request.post(`/device-instance/${deviceId}/properties/_query/no-paging`, {
+    terms: [
+      {
+        column: 'property',
+        termType: 'in',
+        value: ['firmware_version', 'image_ref', 'ota_status', 'ota_message', 'ota_agent_version', 'last_update_time']
+      }
+    ],
+    sorts: [{ name: 'timestamp', order: 'desc' }]
+  })
+}
+
+/**
  * 获取控制日志
  */
 export const getControlLogs = (params: {

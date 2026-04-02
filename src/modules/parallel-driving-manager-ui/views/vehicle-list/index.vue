@@ -197,6 +197,12 @@
               </template>
               {{ $t('parallel-driving.vehicle-list.view-detail') }}
             </a-button>
+            <a-button type="link" @click="goToJobConfig(slotProps)">
+              <template #icon>
+                <AIcon type="SettingOutlined" />
+              </template>
+              任务运营
+            </a-button>
             <!-- <a-button
               type="link"
               :loading="slotProps.takingOver"
@@ -318,6 +324,15 @@ const goToDetail = (record: any) => {
   router.push({ path: `/parallel-driving/vehicles/detail/${id}` })
 }
 
+// 跳转作业配置（新窗口打开）
+const goToJobConfig = (record: any) => {
+  const raw = record?.record || record
+  const id = raw?.deviceId || raw?.id
+  if (!id) return
+  const url = router.resolve({ path: '/parallel-driving/job-config', query: { vehicleId: id, layout: 'false' } })
+  window.open(url.href, '_blank')
+}
+
 // 表格列配置
 const columns = [
   {
@@ -362,7 +377,7 @@ const columns = [
   {
     title: $t('parallel-driving.vehicle-list.action'),
     key: 'action',
-    width: 200,
+    width: 260,
     fixed: 'right',
     scopedSlots: true,
   },

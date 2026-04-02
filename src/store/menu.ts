@@ -189,7 +189,17 @@ export const useMenuStore = defineStore('menu', () => {
             menu.value = routes
             console.log('routes', routes)
             handleMenusMap(routes, handleMenusMapById)
-            siderMenus.value = handleSiderMenu(cloneDeep(menuResult)) // 处理菜单
+
+            const siderData = cloneDeep(menuResult)
+            const HIDDEN_MENU_CODES = ['job-config']
+            const markHidden = (items: any[]) => {
+                items.forEach(item => {
+                    if (HIDDEN_MENU_CODES.includes(item.code)) item.isShow = false
+                    if (item.children) markHidden(item.children)
+                })
+            }
+            markHidden(siderData)
+            siderMenus.value = handleSiderMenu(siderData) // 处理菜单
         }
     }
 

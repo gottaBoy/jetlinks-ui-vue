@@ -73,16 +73,23 @@ export default defineConfig(({ mode }) => {
         ],
         server: {
             host: '0.0.0.0',
-            allowedHosts: ['iot.intra.zeron.ai'],
+            // allowedHosts: ['iot.intra.zeron.ai'],
             port: Number(env.VITE_PORT),
             proxy: {
                 [env.VITE_APP_BASE_API]: {
-                    target: 'http://iot.intra.zeron.ai:8848',
+                    // target: 'http://iot.intra.zeron.ai:8848',
+                    target: 'http://10.10.3.175:8848',
                     // target: 'http://10.8.201.14:8848',
                     ws: true,
                     changeOrigin: true,
                     rewrite: (path) => path.replace(new RegExp(`^${env.VITE_APP_BASE_API}`), ''),
-                }
+                },
+                '/wds-api': {
+                    target: 'https://wds-eapi-dev.zerontruck.com',
+                    changeOrigin: true,
+                    secure: false,
+                    rewrite: (path) => path.replace(/^\/wds-api/, ''),
+                },
             }
         },
         css: {

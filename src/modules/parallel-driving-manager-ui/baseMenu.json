@@ -73,6 +73,20 @@
           "parallel-driving-control-log"
         ],
         "permissions": []
+      },
+      {
+        "code": "job-config",
+        "id": "job-config",
+        "name": "作业功能配置",
+        "icon": "SettingOutlined",
+        "url": "/parallel-driving/job-config",
+        "path": "/parallel-driving/job-config",
+        "isShow": false,
+        "sortIndex": 5,
+        "showPage": [
+          "job-config"
+        ],
+        "permissions": []
       }
     ]
   }

@@ -22,6 +22,3 @@
 [submodule "src/modules/jetlinks-work-order-ui"]
 	path = src/modules/jetlinks-work-order-ui
 	url = git@github.com:jetlinks-v2/jetlinks-work-order-ui.git
-[submodule "src/modules/resources-client-ui"]
-	path = src/modules/resources-client-ui
-	url = git@github.com:jetlinks-v2/resources-client-ui.git

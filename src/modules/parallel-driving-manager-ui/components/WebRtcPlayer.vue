@@ -11,13 +11,39 @@
       :class="{ 'live-only': props.liveOnly }"
       style="width: 100%; height: 100%; object-fit: contain"
     />
-    <div v-if="props.liveOnly && !loading && !error" class="webrtc-live-badge">
-      <span>LIVE</span>
-      <span class="webrtc-duration">{{ elapsedText }}</span>
+    <div v-if="!loading && !error" class="webrtc-net-badge">
+      <span class="wnb-dot" />
+      <span class="wnb-bitrate">{{ statsDisplay.bitrate }}</span>
+      <span class="wnb-sep">·</span>
+      <span class="wnb-fps">{{ statsDisplay.fps }}fps</span>
+      <span v-if="props.liveOnly" class="wnb-sep">·</span>
+      <span v-if="props.liveOnly" class="wnb-time">{{ elapsedText }}</span>
     </div>
-    <!-- <div v-if="bitrateText" class="webrtc-stats">
-      <span>{{ bitrateText }}</span>
-    </div> -->
+
+    <button
+      v-if="!loading && !error"
+      class="webrtc-stats-toggle"
+      :class="{ active: showStats }"
+      @click="showStats = !showStats"
+      title="WebRTC Stats"
+    >
+      <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor">
+        <path d="M2 12h3v6H2zm5-4h3v10H7zm5-5h3v15h-3zm5 2h1v13h-1z"/>
+      </svg>
+    </button>
+
+    <Transition name="stats-fade">
+      <div v-if="showStats && !loading && !error" class="webrtc-stats-panel">
+        <div class="ws-row"><span class="ws-label">FPS</span><span class="ws-value">{{ statsDisplay.fps }}</span></div>
+        <div class="ws-row"><span class="ws-label">RTT</span><span class="ws-value">{{ statsDisplay.rtt }}</span></div>
+        <div class="ws-row"><span class="ws-label">Jitter</span><span class="ws-value">{{ statsDisplay.jitter }}</span></div>
+        <div class="ws-row"><span class="ws-label">Bitrate</span><span class="ws-value">{{ statsDisplay.bitrate }}</span></div>
+        <div class="ws-row"><span class="ws-label">Loss</span><span class="ws-value" :class="statsDisplay.lossClass">{{ statsDisplay.loss }}</span></div>
+        <div class="ws-row"><span class="ws-label">Res</span><span class="ws-value">{{ statsDisplay.resolution }}</span></div>
+        <div class="ws-row"><span class="ws-label">Codec</span><span class="ws-value">{{ statsDisplay.codec }}</span></div>
+      </div>
+    </Transition>
+
     <div v-if="loading" class="webrtc-loading">{{ $t('parallel-driving.vehicle-detail.video-loading') }}</div>
     <div v-if="error" class="webrtc-error-wrap">
       <div class="webrtc-error">{{ error }}</div>
@@ -71,71 +97,112 @@ const stopElapsedTimer = () => {
   }
 }
 
-const bitrateKbps = ref<number | null>(null)
-const bitrateText = computed(() => {
-  const v = bitrateKbps.value
-  if (v == null) return ''
-  if (!Number.isFinite(v)) return ''
-  if (v >= 1000) return `${(v / 1000).toFixed(1)} Mbps`
-  return `${v.toFixed(0)} kbps`
+// ── WebRTC Stats ──
+const showStats = ref(false)
+
+interface RtcStats {
+  fps: number | null
+  rttMs: number | null
+  jitterMs: number | null
+  bitrateKbps: number | null
+  packetsLost: number
+  packetsReceived: number
+  frameWidth: number | null
+  frameHeight: number | null
+  codec: string
+}
+
+const rtcStats = ref<RtcStats>({
+  fps: null, rttMs: null, jitterMs: null, bitrateKbps: null,
+  packetsLost: 0, packetsReceived: 0,
+  frameWidth: null, frameHeight: null, codec: '',
+})
+
+const statsDisplay = computed(() => {
+  const s = rtcStats.value
+  const fmt = (v: number | null, unit: string, decimals = 1) =>
+    v != null && Number.isFinite(v) ? `${v.toFixed(decimals)} ${unit}` : '—'
+
+  const lossRate = s.packetsReceived > 0
+    ? (s.packetsLost / (s.packetsReceived + s.packetsLost)) * 100
+    : 0
+  const lossStr = s.packetsReceived > 0 ? `${lossRate.toFixed(1)}%` : '—'
+
+  let bitrateStr = '—'
+  if (s.bitrateKbps != null && Number.isFinite(s.bitrateKbps)) {
+    bitrateStr = s.bitrateKbps >= 1000
+      ? `${(s.bitrateKbps / 1000).toFixed(1)} Mbps`
+      : `${s.bitrateKbps.toFixed(0)} kbps`
+  }
+
+  return {
+    fps: s.fps != null ? `${Math.round(s.fps)}` : '—',
+    rtt: fmt(s.rttMs, 'ms', 0),
+    jitter: fmt(s.jitterMs, 'ms', 1),
+    bitrate: bitrateStr,
+    loss: lossStr,
+    lossClass: lossRate > 5 ? 'ws-warn' : lossRate > 1 ? 'ws-caution' : '',
+    resolution: s.frameWidth && s.frameHeight ? `${s.frameWidth}×${s.frameHeight}` : '—',
+    codec: s.codec || '—',
+  }
 })
 
 let statsTimer: ReturnType<typeof setInterval> | null = null
 let lastBytes = 0
 let lastTime = 0
 
-const getInboundVideoBytes = async (conn: RTCPeerConnection) => {
-  const stats = await conn.getStats()
-  let bytesReceived = 0
-  stats.forEach((report) => {
-    const r: any = report as any
-    if (r?.type !== 'inbound-rtp') return
-    const mediaType = r.mediaType || r.kind
-    if (mediaType !== 'video') return
-    // 有些浏览器会带 isRemote，remote-inbound-rtp 不计入
-    if (r.isRemote === true) return
-    const b = typeof r.bytesReceived === 'number' ? r.bytesReceived : 0
-    bytesReceived += b
-  })
-  return bytesReceived
+const stopStatsMonitor = () => {
+  if (statsTimer) { clearInterval(statsTimer); statsTimer = null }
+  lastBytes = 0; lastTime = 0
 }
 
-const stopBitrateMonitor = () => {
-  if (statsTimer) {
-    clearInterval(statsTimer)
-    statsTimer = null
-  }
-  bitrateKbps.value = null
-  lastBytes = 0
-  lastTime = 0
-}
-
-const startBitrateMonitor = () => {
+const startStatsMonitor = () => {
   if (!pc || statsTimer) return
   lastBytes = 0
   lastTime = Date.now()
-  bitrateKbps.value = null
 
   statsTimer = setInterval(async () => {
     const conn = pc
-    if (!conn) {
-      stopBitrateMonitor()
-      return
-    }
+    if (!conn) { stopStatsMonitor(); return }
     try {
-      const bytes = await getInboundVideoBytes(conn)
+      const allStats = await conn.getStats()
+      let bytesReceived = 0
+      const patch: Partial<RtcStats> = {}
+
+      allStats.forEach((report: any) => {
+        if (report.type === 'inbound-rtp' && (report.kind === 'video' || report.mediaType === 'video') && !report.isRemote) {
+          bytesReceived = report.bytesReceived ?? 0
+          if (report.framesPerSecond != null) patch.fps = report.framesPerSecond
+          if (report.jitter != null) patch.jitterMs = report.jitter * 1000
+          patch.packetsLost = report.packetsLost ?? 0
+          patch.packetsReceived = report.packetsReceived ?? 0
+          if (report.frameWidth) patch.frameWidth = report.frameWidth
+          if (report.frameHeight) patch.frameHeight = report.frameHeight
+          if (report.codecId) {
+            const codecReport: any = allStats.get(report.codecId)
+            if (codecReport?.mimeType) {
+              patch.codec = codecReport.mimeType.replace('video/', '')
+            }
+          }
+        }
+        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          if (report.currentRoundTripTime != null) {
+            patch.rttMs = report.currentRoundTripTime * 1000
+          }
+        }
+      })
+
       const now = Date.now()
       const dt = (now - lastTime) / 1000
-      if (dt > 0) {
-        const deltaBytes = bytes >= lastBytes ? bytes - lastBytes : 0
-        const kbps = (deltaBytes * 8) / 1000 / dt
-        bitrateKbps.value = Math.max(0, kbps)
+      if (dt > 0 && lastBytes > 0) {
+        const delta = bytesReceived >= lastBytes ? bytesReceived - lastBytes : 0
+        patch.bitrateKbps = (delta * 8) / 1000 / dt
       }
-      lastBytes = bytes
+      lastBytes = bytesReceived
       lastTime = now
-    } catch {
-      // getStats 失败通常是连接已关闭或浏览器限制，忽略即可
-    }
+
+      rtcStats.value = { ...rtcStats.value, ...patch }
+    } catch { /* connection closed */ }
   }, 1000)
 }
 
@@ -162,7 +229,7 @@ const play = async () => {
       if (videoRef.value && e.streams[0]) {
         videoRef.value.srcObject = e.streams[0]
         loading.value = false
-        startBitrateMonitor()
+        startStatsMonitor()
         if (props.liveOnly) startElapsedTimer()
       }
     }
@@ -212,7 +279,7 @@ const play = async () => {
       throw new Error(data.msg || data.message || `服务端错误 code=${data.code}`)
     }
     await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: data.sdp }))
-    startBitrateMonitor()
+    startStatsMonitor()
     // 若 10 秒内未收到轨道，提示可能流不存在
     setTimeout(() => {
       if (loading.value && pc) {
@@ -227,7 +294,7 @@ const play = async () => {
 }
 
 const stop = () => {
-  stopBitrateMonitor()
+  stopStatsMonitor()
   stopElapsedTimer()
   if (pc) {
     pc.close()
@@ -270,54 +337,108 @@ defineExpose({ play, stop, retry })
   height: 100%;
   background: #000;
 
-  video {
-    display: block;
-  }
+  video { display: block; }
 
-  .webrtc-live-badge {
+  .webrtc-net-badge {
     position: absolute;
-    top: 8px;
-    right: 8px;
+    top: 3px;
+    right: 3px;
     z-index: 2;
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
-    padding: 4px 10px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.55);
-    pointer-events: none;
-    user-select: none;
-  }
-
-  .webrtc-live-badge span:first-child {
-    color: #ff3b30;
-    font-size: 11px;
-  }
-
-  .webrtc-duration {
-    font-size: 14px;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
     font-weight: 500;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
     font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.6);
+    background: rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+    user-select: none;
+    line-height: 1.5;
+  }
+  .wnb-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #22c55e;
+    flex-shrink: 0;
+  }
+  .wnb-bitrate { color: rgba(255, 255, 255, 0.8); }
+  .wnb-fps { color: rgba(255, 255, 255, 0.55); }
+  .wnb-sep { color: rgba(255, 255, 255, 0.25); font-weight: 400; }
+  .wnb-time { color: rgba(255, 255, 255, 0.5); }
+
+  // ── Stats toggle button ──
+  .webrtc-stats-toggle {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.35);
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    transition: all 0.2s;
+    &:hover { background: rgba(0, 0, 0, 0.65); color: #fff; }
+    &.active { background: rgba(24, 144, 255, 0.75); color: #fff; }
   }
 
-  .webrtc-stats {
+  // ── Stats panel ──
+  .webrtc-stats-panel {
     position: absolute;
-    top: 8px;
-    right: 8px;
-    z-index: 2;
-    padding: 4px 8px;
-    border-radius: 6px;
-    color: #fff;
-    font-size: 12px;
+    top: 30px;
+    left: 4px;
+    z-index: 3;
+    min-width: 150px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+    font-size: 11px;
     line-height: 1;
-    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.9);
     pointer-events: none;
     user-select: none;
   }
+  .ws-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 2.5px 0;
+    gap: 12px;
+  }
+  .ws-label {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+  .ws-value {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .ws-warn { color: #ff4d4f; }
+  .ws-caution { color: #faad14; }
+
+  // ── Stats fade transition ──
+  .stats-fade-enter-active,
+  .stats-fade-leave-active { transition: opacity 0.2s, transform 0.2s; }
+  .stats-fade-enter-from,
+  .stats-fade-leave-to { opacity: 0; transform: translateY(-4px); }
 
   .webrtc-loading,
   .webrtc-error {
@@ -328,17 +449,8 @@ defineExpose({ play, stop, retry })
     color: #fff;
     font-size: 14px;
   }
-
-  .webrtc-error-wrap {
-    text-align: center;
-    padding: 8px;
-  }
-
-  .webrtc-error {
-    color: #ff4d4f;
-    margin-bottom: 4px;
-  }
-
+  .webrtc-error-wrap { text-align: center; padding: 8px; }
+  .webrtc-error { color: #ff4d4f; margin-bottom: 4px; }
   .webrtc-error-hint {
     color: rgba(255, 255, 255, 0.7);
     font-size: 12px;
