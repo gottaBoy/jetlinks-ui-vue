@@ -60,17 +60,17 @@
           </dl>
         </section>
 
-        <!-- 目标点选择（按类型分组） -->
+        <!-- 目的地选择（按类型分组） -->
         <section class="jc-section">
           <div class="jc-section-title">
-            <span>目标点</span>
+            <span>目的地</span>
             <a-spin v-if="pointsLoading" :indicator="null" size="small" style="margin-left:6px" />
             <ReloadOutlined class="jc-section-icon" style="cursor:pointer" @click="fetchLoadingPoints()" />
           </div>
           <div class="jc-param-row">
             <a-select
               v-model:value="selectedPointCode"
-              placeholder="选择目标点"
+              placeholder="搜索或选择目的地"
               show-search
               allow-clear
               :filter-option="filterPointOption"
@@ -184,7 +184,7 @@
           <dl class="jc-info-dl" style="margin-bottom:4px">
             <div class="jc-dl-pair"><dt>Task ID</dt><dd class="jc-mono">{{ pncState.taskId || '--' }}</dd></div>
             <div class="jc-dl-pair"><dt>opt_mode</dt><dd class="jc-mono">{{ pncState.optMode || '--' }}</dd></div>
-            <div class="jc-dl-pair"><dt>目标点</dt><dd>{{ pncState.goalName || '--' }}</dd></div>
+            <div class="jc-dl-pair"><dt>目的地</dt><dd>{{ pncState.goalName || '--' }}</dd></div>
             <div class="jc-dl-pair"><dt>Gate</dt><dd class="jc-mono">{{ pncState.gateName || '--' }} {{ pncState.side || '' }}</dd></div>
           </dl>
 
@@ -320,7 +320,7 @@
                     <span class="jcfg-label">停车/充电位</span>
                     <a-select
                       v-model:value="selectedPointCode"
-                      placeholder="选择目的点"
+                      placeholder="搜索或选择目的地"
                       show-search
                       allow-clear
                       :filter-option="filterPointOption"
@@ -562,154 +562,155 @@
         </div>
       </div>
 
-      <!-- ====== Tab: 电源管理 ====== -->
-      <div v-if="activeTab === 'powerMgmt'" class="pwr">
-        <div class="pwr-scroll">
+      <!-- ====== Tab: 系统监控（融合电源 + 健康） ====== -->
+      <div v-if="activeTab === 'sysMon'" class="sysm">
+        <div class="sysm-scroll">
 
-          <!-- 整车高压系统 -->
-          <div class="pwr-section">
-            <div class="pwr-section-title">
-              <ThunderboltOutlined class="pwr-section-icon" />
-              <span>高压系统</span>
-              <span class="pwr-hv-indicator" :class="powerSys.hvActive ? 'is-on' : 'is-off'">
-                {{ powerSys.hvActive ? '已上电' : '未上电' }}
+          <!-- ① 顶部概览：健康等级 + 系统资源 -->
+          <div class="sysm-overview">
+            <div class="sysm-ov-health" :class="`is-${healthLevelClass}`">
+              <span class="sysm-ov-h-label">系统健康</span>
+              <span class="sysm-ov-h-level">{{ healthLevelLabel }}</span>
+              <span class="sysm-ov-h-score jc-mono">{{ healthState.errorScore.toFixed(1) }}</span>
+            </div>
+            <div class="sysm-ov-res">
+              <div v-for="r in sysResources" :key="r.label" class="sysm-ov-res-item">
+                <span class="sysm-ov-res-label">{{ r.label }}</span>
+                <div class="sysm-ov-res-bar"><div class="sysm-ov-res-fill" :style="{ width: r.val + '%' }" :class="{ 'is-warn': r.val > r.warnAt }" /></div>
+                <span class="sysm-ov-res-val jc-mono">{{ r.val }}%</span>
+              </div>
+            </div>
+            <div class="sysm-ov-stats">
+              <div class="sysm-ov-stat">
+                <span class="sysm-ov-stat-val jc-mono" :class="{ 'is-warn': healthState.recordedErrors.length > 0 }">{{ healthState.recordedErrors.length }}</span>
+                <span class="sysm-ov-stat-label">错误</span>
+              </div>
+              <div class="sysm-ov-stat">
+                <span class="sysm-ov-stat-val jc-mono" :class="{ 'is-warn': topicAnomalyCount > 0 }">{{ topicAnomalyCount }}</span>
+                <span class="sysm-ov-stat-label">Topic 异常</span>
+              </div>
+              <div class="sysm-ov-stat">
+                <span class="sysm-ov-stat-val jc-mono" :class="{ 'is-warn': sysNodeDownCount > 0 }">{{ sysNodeDownCount }}</span>
+                <span class="sysm-ov-stat-label">节点异常</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ② 节点 & 数据流矩阵（合并 ROS 节点 + 设备驱动 + Topic 频率） -->
+          <div class="sysm-section">
+            <div class="sysm-section-title">
+              <ApiOutlined class="sysm-section-icon" />
+              <span>节点 & 数据流</span>
+              <span class="sysm-badge" :class="(sysNodeDownCount + topicAnomalyCount) > 0 ? 'is-warn' : 'is-ok'">
+                {{ (sysNodeDownCount + topicAnomalyCount) > 0 ? `${sysNodeDownCount + topicAnomalyCount} 异常` : '全部正常' }}
               </span>
             </div>
-            <div class="pwr-cards">
-              <div class="pwr-card">
-                <span class="pwr-card-label">高压总开关</span>
-                <span class="pwr-card-status" :class="powerSys.hvContactor ? 'is-on' : 'is-off'">
-                  {{ powerSys.hvContactor ? 'ON' : 'OFF' }}
-                </span>
+            <div class="sysm-node-table">
+              <div class="sysm-node-header">
+                <span class="sysm-nh-name">节点 / 设备</span>
+                <span class="sysm-nh-proc">进程</span>
+                <span class="sysm-nh-drv">驱动</span>
+                <span class="sysm-nh-freq">频率</span>
+                <span class="sysm-nh-expect">期望</span>
+                <span class="sysm-nh-status">状态</span>
               </div>
-              <div class="pwr-card">
-                <span class="pwr-card-label">预充状态</span>
-                <span class="pwr-card-status" :class="prechargeClass">{{ prechargeLabel }}</span>
-              </div>
-              <div class="pwr-card">
-                <span class="pwr-card-label">高压互锁</span>
-                <span class="pwr-card-status" :class="powerSys.hvInterlock ? 'is-on' : 'is-off'">
-                  {{ powerSys.hvInterlock ? '正常' : '断开' }}
-                </span>
-              </div>
-              <div class="pwr-card">
-                <span class="pwr-card-label">绝缘监测</span>
-                <span class="pwr-card-val jc-mono" :class="{ 'is-warn': powerSys.insulationR < 500 }">
-                  {{ powerSys.insulationR }} MΩ
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 低压系统 (12V/24V) -->
-          <div class="pwr-section">
-            <div class="pwr-section-title">
-              <DashboardOutlined class="pwr-section-icon" />
-              <span>低压系统</span>
-            </div>
-            <div class="pwr-cards">
-              <div class="pwr-card">
-                <span class="pwr-card-label">DCDC 状态</span>
-                <span class="pwr-card-status" :class="powerSys.dcdcActive ? 'is-on' : 'is-off'">
-                  {{ powerSys.dcdcActive ? '工作中' : '停止' }}
-                </span>
-              </div>
-              <div class="pwr-card">
-                <span class="pwr-card-label">DCDC 输出</span>
-                <span class="pwr-card-val jc-mono">{{ powerSys.dcdcOutputV.toFixed(1) }}V</span>
-                <span class="pwr-card-sub jc-mono">{{ powerSys.dcdcOutputA.toFixed(1) }}A</span>
-              </div>
-              <div class="pwr-card">
-                <span class="pwr-card-label">蓄电池电压</span>
-                <span class="pwr-card-val jc-mono" :class="{ 'is-warn': powerSys.auxBatteryV < 22 }">
-                  {{ powerSys.auxBatteryV.toFixed(1) }}V
-                </span>
-              </div>
-              <div class="pwr-card">
-                <span class="pwr-card-label">KL15 (ACC)</span>
-                <span class="pwr-card-status" :class="powerSys.kl15 ? 'is-on' : 'is-off'">
-                  {{ powerSys.kl15 ? 'ON' : 'OFF' }}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 域控 & 传感器供电 -->
-          <div class="pwr-section">
-            <div class="pwr-section-title">
-              <ApiOutlined class="pwr-section-icon" />
-              <span>域控 & 传感器供电</span>
-            </div>
-            <div class="pwr-rail-grid">
               <div
-                v-for="rail in powerSys.rails"
-                :key="rail.name"
-                class="pwr-rail"
-                :class="rail.on ? 'is-on' : 'is-off'"
+                v-for="row in sysNodeRows"
+                :key="row.name"
+                class="sysm-node-row"
+                :class="{ 'is-warn': row.hasWarn, 'is-error': row.hasError }"
               >
-                <div class="pwr-rail-dot" />
-                <span class="pwr-rail-name">{{ rail.name }}</span>
-                <span v-if="rail.on" class="pwr-rail-info jc-mono">{{ rail.voltage.toFixed(1) }}V / {{ rail.current.toFixed(1) }}A</span>
-                <span v-else class="pwr-rail-info is-off">断电</span>
+                <span class="sysm-nr-name">{{ row.name }}</span>
+                <span class="sysm-nr-proc" :class="`is-${row.procState}`">
+                  <span class="sysm-dot" />
+                  {{ nodeStateLabel(row.procState) }}
+                </span>
+                <span class="sysm-nr-drv" :class="`is-${row.drvState}`">
+                  <span class="sysm-dot" />
+                  {{ row.drvLabel }}
+                </span>
+                <span class="sysm-nr-freq jc-mono">{{ row.actualFreq !== null ? row.actualFreq.toFixed(1) : '--' }}</span>
+                <span class="sysm-nr-expect jc-mono">{{ row.expectedFreq !== null ? row.expectedFreq.toFixed(1) : '--' }}</span>
+                <span class="sysm-nr-tag" :class="`is-${row.overallClass}`">{{ row.overallLabel }}</span>
               </div>
             </div>
           </div>
 
-          <!-- 通信链路 -->
-          <div class="pwr-section">
-            <div class="pwr-section-title">
-              <WifiOutlined class="pwr-section-icon" />
+          <!-- ③ 通信链路 -->
+          <div class="sysm-section">
+            <div class="sysm-section-title">
+              <WifiOutlined class="sysm-section-icon" />
               <span>通信链路</span>
             </div>
-            <div class="pwr-cards">
-              <div v-for="link in powerSys.commLinks" :key="link.name" class="pwr-card pwr-card--wide">
-                <div class="pwr-link-row">
-                  <span class="pwr-card-label">{{ link.name }}</span>
-                  <span class="pwr-link-status" :class="link.ok ? 'is-on' : 'is-off'">
-                    {{ link.ok ? '正常' : '中断' }}
-                  </span>
+            <div class="sysm-comm-grid">
+              <div v-for="link in powerSys.commLinks" :key="link.name" class="sysm-comm-card">
+                <div class="sysm-comm-row">
+                  <span class="sysm-comm-name">{{ link.name }}</span>
+                  <span class="sysm-comm-status" :class="link.ok ? 'is-on' : 'is-off'">{{ link.ok ? '正常' : '中断' }}</span>
                 </div>
-                <div v-if="link.latency !== undefined" class="pwr-link-detail">
-                  <span class="pwr-link-metric jc-mono">延迟 {{ link.latency }}ms</span>
-                  <span v-if="link.signal !== undefined" class="pwr-link-metric jc-mono">信号 {{ link.signal }}dBm</span>
+                <div v-if="link.latency !== undefined" class="sysm-comm-detail">
+                  <span class="jc-mono">{{ link.latency }}ms</span>
+                  <span v-if="link.signal !== undefined" class="jc-mono">{{ link.signal }}dBm</span>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- 功率分布 -->
-          <div class="pwr-section">
-            <div class="pwr-section-title">
-              <ControlOutlined class="pwr-section-icon" />
-              <span>功率分布</span>
+          <!-- ④ 底盘电源 (CAN 上报) -->
+          <div class="sysm-section">
+            <div class="sysm-section-title">
+              <ThunderboltOutlined class="sysm-section-icon" />
+              <span>底盘电源 (CAN)</span>
+              <span class="sysm-hv-tag" :class="powerSys.hvActive ? 'is-on' : 'is-off'">
+                {{ powerSys.hvActive ? '高压 ON' : '高压 OFF' }}
+              </span>
             </div>
-            <div class="pwr-power-bars">
-              <div v-for="item in powerDistribution" :key="item.name" class="pwr-power-row">
-                <span class="pwr-power-label">{{ item.name }}</span>
-                <div class="pwr-power-bar-track">
-                  <div
-                    class="pwr-power-bar-fill"
-                    :style="{ width: item.percent + '%', background: item.color }"
-                  />
-                </div>
-                <span class="pwr-power-val jc-mono">{{ item.power }}W</span>
+            <div class="sysm-hw-grid">
+              <div class="sysm-hw-item">
+                <span class="sysm-hw-label">预充</span>
+                <span class="sysm-hw-val" :class="prechargeClass">{{ prechargeLabel }}</span>
+              </div>
+              <div class="sysm-hw-item">
+                <span class="sysm-hw-label">高压互锁</span>
+                <span class="sysm-hw-val" :class="powerSys.hvInterlock ? 'is-on' : 'is-off'">{{ powerSys.hvInterlock ? '正常' : '断开' }}</span>
+              </div>
+              <div class="sysm-hw-item">
+                <span class="sysm-hw-label">绝缘</span>
+                <span class="sysm-hw-val jc-mono" :class="{ 'is-warn': powerSys.insulationR < 500 }">{{ powerSys.insulationR }} MΩ</span>
+              </div>
+              <div class="sysm-hw-item">
+                <span class="sysm-hw-label">DCDC</span>
+                <span class="sysm-hw-val jc-mono">{{ powerSys.dcdcOutputV.toFixed(1) }}V</span>
+              </div>
+              <div class="sysm-hw-item">
+                <span class="sysm-hw-label">蓄电池</span>
+                <span class="sysm-hw-val jc-mono" :class="{ 'is-warn': powerSys.auxBatteryV < 22 }">{{ powerSys.auxBatteryV.toFixed(1) }}V</span>
+              </div>
+              <div class="sysm-hw-item">
+                <span class="sysm-hw-label">KL15</span>
+                <span class="sysm-hw-val" :class="powerSys.kl15 ? 'is-on' : 'is-off'">{{ powerSys.kl15 ? 'ON' : 'OFF' }}</span>
               </div>
             </div>
           </div>
 
-          <!-- 告警 -->
-          <div class="pwr-section" v-if="powerSys.alerts.length">
-            <div class="pwr-section-title">
-              <AlertOutlined class="pwr-section-icon" style="color:#ef4444" />
-              <span>电源告警</span>
-              <span class="pwr-alert-count">{{ powerSys.alerts.length }}</span>
+          <!-- ⑤ 错误事件流 -->
+          <div class="sysm-section">
+            <div class="sysm-section-title">
+              <AlertOutlined class="sysm-section-icon" style="color:#ef4444" />
+              <span>错误事件流</span>
+              <span v-if="allAlerts.length" class="sysm-badge is-error">{{ allAlerts.length }}</span>
             </div>
-            <div class="pwr-alert-list">
-              <div v-for="a in powerSys.alerts" :key="a.id" class="pwr-alert-item" :class="`is-${a.level}`">
-                <span class="pwr-alert-level">{{ a.level === 'error' ? '故障' : '警告' }}</span>
-                <span class="pwr-alert-msg">{{ a.message }}</span>
-                <span class="pwr-alert-time jc-mono">{{ a.time }}</span>
+            <div v-if="allAlerts.length" class="sysm-error-list">
+              <div v-for="e in allAlerts" :key="e.id" class="sysm-error-row" :class="`is-lv${e.level}`">
+                <span class="sysm-error-level">{{ e.levelTag }}</span>
+                <span class="sysm-error-name">{{ e.name }}</span>
+                <span class="sysm-error-detail">{{ e.detail }}</span>
+                <span class="sysm-error-time jc-mono">{{ e.time }}</span>
               </div>
+            </div>
+            <div v-else class="sysm-empty">
+              <CheckCircleFilled style="color:#22c55e;font-size:16px" />
+              <span>系统正常，无告警</span>
             </div>
           </div>
 
@@ -1251,10 +1252,10 @@ const fetchVehicles = async (keyword?: string) => {
 
 const navTabs = [
   { key: 'nodeControl', label: '节点控制', icon: VideoCameraOutlined },
-  { key: 'jobConfig', label: '作业功能配置', icon: SettingOutlined },
-  { key: 'powerMgmt', label: '电源管理', icon: ApiOutlined },
+  // { key: 'jobConfig', label: '作业功能配置', icon: SettingOutlined },
+  { key: 'sysMon', label: '系统监控', icon: SafetyCertificateOutlined },
   // { key: 'batteryMgmt', label: '电池管理', icon: ThunderboltOutlined },
-  { key: 'simulation', label: '仿真设置', icon: ExperimentOutlined },
+  // { key: 'simulation', label: '仿真设置', icon: ExperimentOutlined },
 ]
 
 
@@ -1404,7 +1405,7 @@ const fetchLoadingPoints = async () => {
 
 const handleMoveToPoint = async () => {
   if (!selectedPointCode.value) {
-    message.warning('请先选择目标点')
+    message.warning('请先选择目的地')
     return
   }
   moveLoading.value = true
@@ -1607,12 +1608,18 @@ const handleCommand = (key: string) => {
   message.info(`指令已发送: ${key}`)
 }
 
-// ═══════════ 电源管理 ═══════════
-interface PowerRail {
+// ═══════════ 电源管理（三层架构） ═══════════
+type NodeState = 'active' | 'inactive' | 'crashed' | 'unknown'
+type DeviceState = 'connected' | 'disconnected' | 'degraded' | 'timeout'
+
+interface RosNodeStatus {
   name: string
-  on: boolean
-  voltage: number
-  current: number
+  state: NodeState
+}
+interface DeviceDriver {
+  name: string
+  state: DeviceState
+  dataRate?: number
 }
 interface CommLink {
   name: string
@@ -1628,33 +1635,46 @@ interface PowerAlert {
 }
 
 const powerSys = reactive({
-  hvActive: true,
-  hvContactor: true,
-  prechargeState: 'done' as 'idle' | 'charging' | 'done' | 'fault',
-  hvInterlock: true,
-  insulationR: 520,
+  // ── 软件层：ROS 节点 + 系统资源 ──
+  rosNodes: [
+    { name: 'cam_driver', state: 'active' },
+    { name: 'lidar_m1ps', state: 'active' },
+    { name: 'chassis_d_plus', state: 'active' },
+    { name: 'daoyuan_570d', state: 'active' },
+    { name: 'e2e_llm', state: 'active' },
+    { name: 'e2e_control', state: 'active' },
+    { name: 'pnc_manager', state: 'active' },
+    { name: 'global_planner', state: 'active' },
+    { name: 'local_planner', state: 'active' },
+    { name: 'controller', state: 'active' },
+    { name: 'ads_tasks', state: 'active' },
+    { name: 'health_arbitrator', state: 'active' },
+    { name: 'topic_freq_monitor', state: 'active' },
+    { name: 'parallel_driving', state: 'active' },
+    { name: 'ztd_rtsp', state: 'active' },
+    { name: 'system_monitor', state: 'active' },
+  ] as RosNodeStatus[],
+  cpuPercent: 62,
+  gpuPercent: 78,
+  memPercent: 54,
+  diskPercent: 41,
 
-  dcdcActive: true,
-  dcdcOutputV: 27.2,
-  dcdcOutputA: 18.5,
-  auxBatteryV: 26.8,
-  kl15: true,
+  // ── 中间层：设备驱动 & 数据流 ──
+  devices: [
+    { name: '前摄像头 (cam_f)', state: 'connected', dataRate: 15 },
+    { name: '后摄像头 (cam_b)', state: 'connected', dataRate: 15 },
+    { name: '左摄像头 (cam_l)', state: 'connected', dataRate: 15 },
+    { name: '右摄像头 (cam_r)', state: 'connected', dataRate: 15 },
+    { name: '激光雷达 (lidar)', state: 'connected', dataRate: 10 },
+    { name: '超声波 (uss_front)', state: 'timeout' },
+    { name: '超声波 (uss_rear)', state: 'connected', dataRate: 20 },
+    { name: 'IMU/GNSS', state: 'connected', dataRate: 100 },
+    { name: 'CAN 总线', state: 'connected', dataRate: 50 },
+    { name: '4G/5G 模组', state: 'connected' },
+    { name: 'V2X 模组', state: 'disconnected' },
+  ] as DeviceDriver[],
 
-  rails: [
-    { name: '域控主板 (Orin)', on: true, voltage: 12.1, current: 8.2 },
-    { name: '激光雷达', on: true, voltage: 12.0, current: 3.5 },
-    { name: '前摄像头', on: true, voltage: 12.1, current: 1.2 },
-    { name: '后摄像头', on: true, voltage: 12.0, current: 1.1 },
-    { name: '左摄像头', on: true, voltage: 12.1, current: 1.0 },
-    { name: '右摄像头', on: true, voltage: 12.0, current: 1.1 },
-    { name: '毫米波雷达', on: true, voltage: 12.0, current: 2.3 },
-    { name: 'IMU/GNSS', on: true, voltage: 5.0, current: 0.8 },
-    { name: '4G/5G 模块', on: true, voltage: 5.1, current: 1.5 },
-    { name: 'V2X 模块', on: false, voltage: 0, current: 0 },
-    { name: 'CAN 网关', on: true, voltage: 12.0, current: 0.6 },
-    { name: 'EPS 电控助力', on: true, voltage: 12.1, current: 5.2 },
-  ] as PowerRail[],
-
+  // ── 通信链路 ──
   commLinks: [
     { name: '4G/5G 上行', ok: true, latency: 28, signal: -68 },
     { name: 'V2X 通信', ok: false },
@@ -1662,10 +1682,32 @@ const powerSys = reactive({
     { name: '域控 → 云端 WS', ok: true, latency: 35 },
   ] as CommLink[],
 
+  // ── 硬件层：CAN 上报数据 ──
+  hvActive: true,
+  hvContactor: true,
+  prechargeState: 'done' as 'idle' | 'charging' | 'done' | 'fault',
+  hvInterlock: true,
+  insulationR: 520,
+  dcdcActive: true,
+  dcdcOutputV: 27.2,
+  dcdcOutputA: 18.5,
+  auxBatteryV: 26.8,
+  kl15: true,
+
   alerts: [
-    { id: '1', level: 'warn', message: 'V2X 模块未上电', time: '14:15:33' },
+    { id: '1', level: 'warn', message: 'V2X 模组驱动未连接', time: '14:15:33' },
+    { id: '2', level: 'warn', message: 'uss_front 数据流超时', time: '14:12:08' },
   ] as PowerAlert[],
 })
+
+const NODE_STATE_LABELS: Record<NodeState, string> = {
+  active: '运行中', inactive: '未启动', crashed: '崩溃', unknown: '未知',
+}
+const DEVICE_STATE_LABELS: Record<DeviceState, string> = {
+  connected: '已连接', disconnected: '未连接', degraded: '降级', timeout: '超时',
+}
+const nodeStateLabel = (s: NodeState) => NODE_STATE_LABELS[s] || s
+const deviceStateLabel = (s: DeviceState) => DEVICE_STATE_LABELS[s] || s
 
 const prechargeLabel = computed(() => {
   const m: Record<string, string> = { idle: '未预充', charging: '预充中', done: '预充完成', fault: '预充故障' }
@@ -1676,15 +1718,216 @@ const prechargeClass = computed(() => {
   return m[powerSys.prechargeState] || ''
 })
 
-const powerDistribution = computed(() => {
-  const items = [
-    { name: '域控平台', power: Math.round(powerSys.rails[0].voltage * powerSys.rails[0].current), color: '#5b8cff' },
-    { name: '感知传感器', power: Math.round(powerSys.rails.slice(1, 7).reduce((s, r) => s + r.voltage * r.current, 0)), color: '#22c55e' },
-    { name: '通信模块', power: Math.round(powerSys.rails.slice(7, 10).reduce((s, r) => s + r.voltage * r.current, 0)), color: '#a78bfa' },
-    { name: '底盘执行器', power: Math.round(powerSys.rails.slice(10).reduce((s, r) => s + r.voltage * r.current, 0)), color: '#f59e0b' },
+// ═══════════ 健康管理 ═══════════
+// error_level 定义 (来自 error_level_def.hpp)
+const HEALTH_LEVELS = [
+  { level: 0, label: '系统正常', cls: 'ok' },
+  { level: 1, label: '轻微异常', cls: 'info' },
+  { level: 2, label: '不健康警告', cls: 'warn' },
+  { level: 3, label: '功能降级', cls: 'degrade' },
+  { level: 4, label: '严重故障', cls: 'error' },
+  { level: 5, label: '系统不可用', cls: 'fatal' },
+] as const
+
+// Topic freq_status 定义 (来自 TopicStatus.msg)
+const TOPIC_FREQ_STATUS = {
+  0: { label: '未接收', cls: 'off' },
+  1: { label: '正常', cls: 'ok' },
+  2: { label: '频率警告', cls: 'warn' },
+  3: { label: '频率异常', cls: 'error' },
+  4: { label: '初始化超时', cls: 'timeout' },
+} as Record<number, { label: string; cls: string }>
+
+interface HealthError {
+  errorName: string
+  uniqueId: number
+  errorLevel: number
+  detail: string
+  moduleId: number
+  errorId: number
+}
+
+interface TopicStatusItem {
+  nodeName: string
+  topicName: string
+  freqStatus: number
+  actualFreq: number
+  expectedFreq: number
+}
+
+interface HealthModule {
+  name: string
+  status: 'ok' | 'warn' | 'error' | 'off'
+  statusLabel: string
+}
+
+const healthState = reactive({
+  errorName: '' as string,
+  uniqueId: 0,
+  errorLevel: 0,
+  errorScore: 0.0,
+  recordedErrors: [
+    { errorName: 'cam3_freq_low', uniqueId: 0x010301, errorLevel: 2, detail: '右摄像头帧率低于预期 (8Hz / 15Hz)', moduleId: 0x01, errorId: 3 },
+    { errorName: 'uss_front_timeout', uniqueId: 0x030001, errorLevel: 1, detail: '前超声波初始化超时', moduleId: 0x03, errorId: 1 },
+  ] as HealthError[],
+  topicStatuses: [
+    { nodeName: 'cam1', topicName: '/zeron/driver/camera/cam_l_1/raw_image/compressed', freqStatus: 1, actualFreq: 15.0, expectedFreq: 15.0 },
+    { nodeName: 'cam2', topicName: '/zeron/driver/camera/cam_f_2/raw_image/compressed', freqStatus: 1, actualFreq: 14.8, expectedFreq: 15.0 },
+    { nodeName: 'cam3', topicName: '/zeron/driver/camera/cam_r_3/raw_image/compressed', freqStatus: 2, actualFreq: 8.2, expectedFreq: 15.0 },
+    { nodeName: 'lidar_m1ps', topicName: '/zeron/driver/lidar/pk_lidar_f_3', freqStatus: 1, actualFreq: 10.0, expectedFreq: 10.0 },
+    { nodeName: 'uss_front', topicName: '/zeron/driver/uss_front/obj_distance', freqStatus: 4, actualFreq: 0.0, expectedFreq: 20.0 },
+    { nodeName: 'chassis_d_plus', topicName: '/zeron/chassis_d_plus/chassis_info_master', freqStatus: 1, actualFreq: 50.0, expectedFreq: 50.0 },
+    { nodeName: 'daoyuan_570d', topicName: '/zeron/localization/pose_info', freqStatus: 1, actualFreq: 100.0, expectedFreq: 100.0 },
+    { nodeName: 'e2e_llm', topicName: '/zeron/e2e_llm/path_point_info', freqStatus: 1, actualFreq: 10.0, expectedFreq: 10.0 },
+    { nodeName: 'e2e_control', topicName: '/zeron/e2e_control/logical_control_info', freqStatus: 1, actualFreq: 50.0, expectedFreq: 50.0 },
+    { nodeName: 'ads_tasks', topicName: '/zeron/ads_tasks/task_info', freqStatus: 1, actualFreq: 1.0, expectedFreq: 1.0 },
+  ] as TopicStatusItem[],
+})
+
+const healthLevelClass = computed(() => HEALTH_LEVELS[healthState.errorLevel]?.cls || 'ok')
+const healthLevelLabel = computed(() => HEALTH_LEVELS[healthState.errorLevel]?.label || '--')
+
+const topicAnomalyCount = computed(() =>
+  healthState.topicStatuses.filter(t => t.freqStatus !== 1).length
+)
+
+const topicFreqClass = (status: number) => TOPIC_FREQ_STATUS[status]?.cls || 'off'
+const topicFreqLabel = (status: number) => TOPIC_FREQ_STATUS[status]?.label || '--'
+
+// module_def.yaml 中的模块组，映射到健康状态
+const healthModuleGroups = computed(() => {
+  const errorModules = new Set(healthState.recordedErrors.map(e => e.errorName.split('_')[0]))
+  const topicWarnNodes = new Set(healthState.topicStatuses.filter(t => t.freqStatus !== 1).map(t => t.nodeName))
+
+  const getStatus = (name: string): HealthModule => {
+    const lname = name.toLowerCase()
+    if (healthState.recordedErrors.some(e => e.errorName.toLowerCase().includes(lname) && e.errorLevel >= 3))
+      return { name, status: 'error', statusLabel: '故障' }
+    if (errorModules.has(lname) || topicWarnNodes.has(lname))
+      return { name, status: 'warn', statusLabel: '异常' }
+    return { name, status: 'ok', statusLabel: '正常' }
+  }
+
+  return [
+    {
+      name: 'sensors', label: '传感器',
+      modules: [
+        getStatus('cam1'), getStatus('cam2'), getStatus('cam3'), getStatus('cam4'),
+        getStatus('lidar_m1ps'), getStatus('lidar_e1'),
+        getStatus('uss_front'), getStatus('uss_rear'),
+        getStatus('daoyuan_570d'),
+      ],
+    },
+    {
+      name: 'algorithms', label: '算法',
+      modules: [
+        getStatus('e2e_llm'), getStatus('e2e_tracker'), getStatus('e2e_control'),
+        getStatus('navigation'), getStatus('ads_tasks'),
+      ],
+    },
+    {
+      name: 'chassis', label: '底盘',
+      modules: [getStatus('chassis_d_plus')],
+    },
   ]
-  const maxP = Math.max(...items.map(i => i.power), 1)
-  return items.map(i => ({ ...i, percent: Math.round((i.power / maxP) * 100) }))
+})
+
+// ═══════════ 系统监控（融合视图） ═══════════
+const sysResources = computed(() => [
+  { label: 'CPU', val: powerSys.cpuPercent, warnAt: 80 },
+  { label: 'GPU', val: powerSys.gpuPercent, warnAt: 85 },
+  { label: 'MEM', val: powerSys.memPercent, warnAt: 85 },
+  { label: 'DISK', val: powerSys.diskPercent, warnAt: 90 },
+])
+
+const sysNodeDownCount = computed(() =>
+  powerSys.rosNodes.filter(n => n.state !== 'active').length +
+  powerSys.devices.filter(d => d.state !== 'connected').length
+)
+
+interface SysNodeRow {
+  name: string
+  procState: NodeState
+  drvState: DeviceState | 'na'
+  drvLabel: string
+  actualFreq: number | null
+  expectedFreq: number | null
+  overallClass: string
+  overallLabel: string
+  hasWarn: boolean
+  hasError: boolean
+}
+
+const sysNodeRows = computed<SysNodeRow[]>(() => {
+  const rows: SysNodeRow[] = []
+  const topicMap = new Map(healthState.topicStatuses.map(t => [t.nodeName, t]))
+  const deviceMap = new Map(powerSys.devices.map(d => [d.name, d]))
+  const seen = new Set<string>()
+
+  for (const node of powerSys.rosNodes) {
+    seen.add(node.name)
+    const topic = topicMap.get(node.name)
+    const shortName = node.name
+    let drvState: DeviceState | 'na' = 'na'
+    let drvLabel = '--'
+    for (const [, dev] of deviceMap) {
+      if (dev.name.toLowerCase().includes(shortName.toLowerCase()) || shortName.toLowerCase().includes(dev.name.split(' ')[0].toLowerCase())) {
+        drvState = dev.state
+        drvLabel = deviceStateLabel(dev.state)
+        break
+      }
+    }
+
+    const procBad = node.state !== 'active'
+    const drvBad = drvState !== 'na' && drvState !== 'connected'
+    const freqBad = topic ? topic.freqStatus !== 1 : false
+    const hasError = node.state === 'crashed' || (topic?.freqStatus === 3)
+    const hasWarn = !hasError && (procBad || drvBad || freqBad)
+
+    let overallClass = 'ok'
+    let overallLabel = '正常'
+    if (hasError) { overallClass = 'error'; overallLabel = '故障' }
+    else if (hasWarn) { overallClass = 'warn'; overallLabel = '异常' }
+
+    rows.push({
+      name: node.name,
+      procState: node.state as NodeState,
+      drvState,
+      drvLabel,
+      actualFreq: topic?.actualFreq ?? null,
+      expectedFreq: topic?.expectedFreq ?? null,
+      overallClass,
+      overallLabel,
+      hasWarn,
+      hasError,
+    })
+  }
+  return rows
+})
+
+const allAlerts = computed(() => {
+  const items: Array<{ id: string; level: number; levelTag: string; name: string; detail: string; time: string }> = []
+  for (const e of healthState.recordedErrors) {
+    items.push({
+      id: `h-${e.uniqueId}`,
+      level: e.errorLevel,
+      levelTag: `L${e.errorLevel}`,
+      name: e.errorName,
+      detail: e.detail,
+      time: '',
+    })
+  }
+  for (const a of powerSys.alerts) {
+    items.push({
+      id: `p-${a.id}`,
+      level: a.level === 'error' ? 4 : 2,
+      levelTag: a.level === 'error' ? '故障' : '警告',
+      name: a.message,
+      detail: '',
+      time: a.time,
+    })
+  }
+  return items.sort((a, b) => b.level - a.level)
 })
 
 // ═══════════ 电池管理 (BMS) ═══════════
@@ -2931,261 +3174,183 @@ onBeforeUnmount(() => {
   &:hover { color: @text !important; border-color: @border-light !important; }
 }
 
-/* ═══════════ 电源管理 ═══════════ */
-.pwr {
-  height: 100%;
-  overflow: hidden;
-}
-.pwr-scroll {
-  height: 100%;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
+/* ═══════════ 系统监控（融合） ═══════════ */
+.sysm { height: 100%; overflow: hidden; }
+.sysm-scroll {
+  height: 100%; overflow-y: auto; padding: 14px;
+  display: flex; flex-direction: column; gap: 12px;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
 
-.pwr-section {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid @border;
-  border-radius: 10px;
-  padding: 14px;
+/* ── 概览 ── */
+.sysm-overview {
+  display: flex; gap: 10px; align-items: stretch;
 }
-.pwr-section-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: @text;
-  margin-bottom: 12px;
-}
-.pwr-section-icon {
-  font-size: 14px;
-  color: @accent;
-}
-.pwr-hv-indicator {
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 10px;
-  border-radius: 10px;
+.sysm-ov-health {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; padding: 10px 16px; border-radius: 10px;
+  background: @bg-section; border: 1px solid @border; min-width: 100px;
 
-  &.is-on {
-    background: @green-dim;
-    color: @green;
-  }
-  &.is-off {
-    background: @red-dim;
-    color: #ff6b6b;
-  }
+  &.is-ok      { border-color: fade(@green, 25%); }
+  &.is-info    { border-color: fade(@accent, 25%); }
+  &.is-warn    { border-color: fade(@yellow, 25%); }
+  &.is-degrade { border-color: fade(@orange, 25%); }
+  &.is-error   { border-color: fade(@red, 30%); background: @red-dim; }
+  &.is-fatal   { border-color: fade(@red, 40%); background: fade(@red, 12%); }
 }
+.sysm-ov-h-label { font-size: 9px; color: @text-muted; text-transform: uppercase; letter-spacing: 0.4px; }
+.sysm-ov-h-level {
+  font-size: 13px; font-weight: 700; color: @text;
+  .is-ok &     { color: @green; }
+  .is-warn &   { color: @yellow; }
+  .is-degrade &{ color: @orange; }
+  .is-error &  { color: #ff6b6b; }
+  .is-fatal &  { color: #ff4444; }
+}
+.sysm-ov-h-score { font-size: 10px; color: @text-dim; }
 
-/* 卡片网格 */
-.pwr-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px;
+.sysm-ov-res {
+  flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  padding: 8px 12px; border-radius: 10px; background: @bg-section; border: 1px solid @border;
 }
-.pwr-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 10px 8px;
-  border-radius: 8px;
-  background: @bg-section;
-  border: 1px solid @border;
-}
-.pwr-card--wide {
-  grid-column: span 2;
-  align-items: stretch;
-}
-.pwr-card-label {
-  font-size: 11px;
-  color: @text-dim;
-}
-.pwr-card-status {
-  font-size: 12px;
-  font-weight: 700;
-  padding: 1px 10px;
-  border-radius: 4px;
+.sysm-ov-res-item { display: flex; align-items: center; gap: 5px; }
+.sysm-ov-res-label { font-size: 9px; font-weight: 600; color: @text-muted; min-width: 28px; letter-spacing: 0.3px; }
+.sysm-ov-res-bar { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.06); overflow: hidden; }
+.sysm-ov-res-fill { height: 100%; border-radius: 2px; background: @accent; transition: width 0.4s; &.is-warn { background: @yellow; } }
+.sysm-ov-res-val { font-size: 9px; color: @text-dim; min-width: 26px; text-align: right; }
 
-  &.is-on  { background: @green-dim; color: @green; }
-  &.is-off { background: rgba(255,255,255,0.06); color: @text-muted; }
+.sysm-ov-stats {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 6px 12px; border-radius: 10px; background: @bg-section; border: 1px solid @border;
+}
+.sysm-ov-stat { display: flex; align-items: baseline; gap: 4px; }
+.sysm-ov-stat-val { font-size: 16px; font-weight: 700; color: @text; &.is-warn { color: @yellow; } }
+.sysm-ov-stat-label { font-size: 9px; color: @text-muted; }
+
+/* ── Section 通用 ── */
+.sysm-section {
+  background: rgba(255,255,255,0.03); border: 1px solid @border; border-radius: 10px; padding: 12px;
+}
+.sysm-section-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 600; color: @text; margin-bottom: 10px;
+}
+.sysm-section-icon { font-size: 14px; color: @accent; }
+.sysm-badge {
+  margin-left: auto; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 8px;
+  &.is-ok   { background: @green-dim; color: @green; }
   &.is-warn { background: @yellow-dim; color: @yellow; }
+  &.is-error{ background: @red-dim; color: #ff6b6b; }
+}
+
+/* ── 节点表格 ── */
+.sysm-node-table { font-size: 11px; }
+.sysm-node-header {
+  display: flex; align-items: center; gap: 0; padding: 4px 8px;
+  font-size: 10px; font-weight: 600; color: @text-muted; text-transform: uppercase; letter-spacing: 0.3px;
+  border-bottom: 1px solid @border; margin-bottom: 2px;
+}
+.sysm-node-row {
+  display: flex; align-items: center; gap: 0; padding: 5px 8px; border-radius: 5px;
+  transition: background 0.12s;
+  &:hover { background: rgba(255,255,255,0.03); }
+  &.is-warn  { background: fade(@yellow, 4%); }
+  &.is-error { background: fade(@red, 5%); }
+}
+.sysm-nh-name, .sysm-nr-name { flex: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sysm-nh-proc, .sysm-nr-proc { flex: 1; display: flex; align-items: center; gap: 4px; }
+.sysm-nh-drv, .sysm-nr-drv   { flex: 1; display: flex; align-items: center; gap: 4px; }
+.sysm-nh-freq, .sysm-nr-freq { width: 55px; text-align: right; }
+.sysm-nh-expect, .sysm-nr-expect { width: 50px; text-align: right; color: @text-muted; }
+.sysm-nh-status, .sysm-nr-tag { width: 50px; text-align: center; }
+
+.sysm-nr-name { color: @text; font-weight: 500; }
+.sysm-nr-freq { color: @text; }
+
+.sysm-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.sysm-nr-proc, .sysm-nr-drv {
+  &.is-active .sysm-dot, &.is-connected .sysm-dot { background: @green; }
+  &.is-inactive .sysm-dot, &.is-unknown .sysm-dot, &.is-na .sysm-dot { background: rgba(255,255,255,0.2); }
+  &.is-crashed .sysm-dot { background: #ff4444; }
+  &.is-degraded .sysm-dot, &.is-timeout .sysm-dot { background: @yellow; }
+  &.is-disconnected .sysm-dot { background: rgba(255,255,255,0.15); }
+
+  &.is-active, &.is-connected { color: @text-dim; }
+  &.is-crashed { color: #ff6b6b; }
+  &.is-degraded, &.is-timeout { color: @yellow; }
+  &.is-inactive, &.is-disconnected, &.is-unknown, &.is-na { color: @text-muted; }
+}
+
+.sysm-nr-tag {
+  font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px;
+  &.is-ok    { background: @green-dim; color: @green; }
+  &.is-warn  { background: @yellow-dim; color: @yellow; }
   &.is-error { background: @red-dim; color: #ff6b6b; }
 }
-.pwr-card-val {
-  font-size: 16px;
-  font-weight: 600;
-  color: @text;
 
-  &.is-warn { color: @yellow; }
+/* ── 通信链路 ── */
+.sysm-comm-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;
 }
-.pwr-card-sub {
-  font-size: 11px;
-  color: @text-muted;
+.sysm-comm-card {
+  padding: 8px 10px; border-radius: 8px; background: @bg-section; border: 1px solid @border;
 }
-
-/* 供电回路矩阵 */
-.pwr-rail-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 6px;
-}
-.pwr-rail {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: 6px;
-  background: @bg-section;
-  border: 1px solid @border;
-  transition: background 0.15s;
-
-  &.is-on .pwr-rail-dot {
-    background: @green;
-    box-shadow: 0 0 6px fade(@green, 50%);
-  }
-  &.is-off {
-    opacity: 0.55;
-    .pwr-rail-dot {
-      background: rgba(255,255,255,0.2);
-    }
-  }
-}
-.pwr-rail-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.pwr-rail-name {
-  font-size: 12px;
-  color: @text;
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pwr-rail-info {
-  font-size: 11px;
-  color: @text-dim;
-  white-space: nowrap;
-
-  &.is-off { color: @text-muted; font-style: italic; }
-}
-
-/* 通信链路 */
-.pwr-link-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.pwr-link-status {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 8px;
-  border-radius: 3px;
-
+.sysm-comm-row { display: flex; align-items: center; justify-content: space-between; }
+.sysm-comm-name { font-size: 12px; color: @text; }
+.sysm-comm-status {
+  font-size: 10px; font-weight: 600; padding: 1px 8px; border-radius: 3px;
   &.is-on  { background: @green-dim; color: @green; }
   &.is-off { background: @red-dim; color: #ff6b6b; }
 }
-.pwr-link-detail {
-  display: flex;
-  gap: 12px;
-  margin-top: 4px;
+.sysm-comm-detail { display: flex; gap: 10px; margin-top: 3px; font-size: 10px; color: @text-muted; }
+
+/* ── 底盘电源 ── */
+.sysm-hv-tag {
+  margin-left: auto; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 8px;
+  &.is-on  { background: @green-dim; color: @green; }
+  &.is-off { background: @red-dim; color: #ff6b6b; }
 }
-.pwr-link-metric {
-  font-size: 11px;
-  color: @text-muted;
+.sysm-hw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; }
+.sysm-hw-item {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 8px 6px; border-radius: 6px; background: @bg-section; border: 1px solid @border;
+}
+.sysm-hw-label { font-size: 10px; color: @text-muted; }
+.sysm-hw-val {
+  font-size: 12px; font-weight: 600; color: @text;
+  &.is-on  { color: @green; }
+  &.is-off { color: @text-muted; }
+  &.is-warn{ color: @yellow; }
+  &.is-error { color: #ff6b6b; }
 }
 
-/* 功率分布条形图 */
-.pwr-power-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.pwr-power-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.pwr-power-label {
-  font-size: 12px;
-  color: @text-dim;
-  min-width: 80px;
-  text-align: right;
-}
-.pwr-power-bar-track {
-  flex: 1;
-  height: 6px;
-  border-radius: 3px;
-  background: rgba(255,255,255,0.06);
-  overflow: hidden;
-}
-.pwr-power-bar-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.4s ease;
-}
-.pwr-power-val {
-  font-size: 11px;
-  color: @text;
-  min-width: 50px;
-}
+/* ── 错误事件流 ── */
+.sysm-error-list { display: flex; flex-direction: column; gap: 4px; }
+.sysm-error-row {
+  display: flex; align-items: center; gap: 8px; padding: 5px 10px;
+  border-radius: 6px; background: rgba(255,255,255,0.02); border: 1px solid @border; font-size: 11px;
 
-/* 告警 */
-.pwr-alert-count {
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: 600;
-  background: @red-dim;
-  color: #ff6b6b;
-  padding: 1px 8px;
-  border-radius: 8px;
+  &.is-lv0, &.is-lv1 { border-color: fade(@accent, 15%); }
+  &.is-lv2 { border-color: fade(@yellow, 18%); background: fade(@yellow, 3%); }
+  &.is-lv3 { border-color: fade(@orange, 18%); background: fade(@orange, 3%); }
+  &.is-lv4, &.is-lv5 { border-color: fade(@red, 20%); background: fade(@red, 4%); }
 }
-.pwr-alert-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.sysm-error-level {
+  font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; min-width: 28px; text-align: center;
+  &.is-lv0, &.is-lv1 { background: fade(@accent, 10%); color: @accent; }
+  &.is-lv2 { background: @yellow-dim; color: @yellow; }
+  &.is-lv3 { background: fade(@orange, 12%); color: @orange; }
+  &.is-lv4, &.is-lv5 { background: @red-dim; color: #ff6b6b; }
 }
-.pwr-alert-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 12px;
+.sysm-error-name { color: @text; font-weight: 500; min-width: 110px; }
+.sysm-error-detail { flex: 1; color: @text-dim; }
+.sysm-error-time { color: @text-muted; font-size: 10px; }
 
-  &.is-warn {
-    background: @yellow-dim;
-    border: 1px solid fade(@yellow, 18%);
-  }
-  &.is-error {
-    background: @red-dim;
-    border: 1px solid fade(@red, 18%);
-  }
-}
-.pwr-alert-level {
-  font-weight: 600;
-  font-size: 11px;
-  min-width: 32px;
-
-  .is-warn & { color: @yellow; }
-  .is-error & { color: #ff6b6b; }
-}
-.pwr-alert-msg {
-  flex: 1;
-  color: @text;
-}
-.pwr-alert-time {
-  color: @text-muted;
-  font-size: 11px;
+.sysm-empty {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 14px; color: @text-dim; font-size: 13px;
 }
 
 /* ═══════════ BMS 电池管理 ═══════════ */
