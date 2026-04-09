@@ -99,6 +99,7 @@
               <span class="rc-label">布局</span>
               <a-radio-group v-model:value="layoutMode" size="small" class="rc-layout-radio">
                 <a-radio-button value="d">驾驶</a-radio-button>
+                <a-radio-button value="e">左中右</a-radio-button>
                 <a-radio-button value="a">2×2</a-radio-button>
                 <a-radio-button value="c">前全宽</a-radio-button>
               </a-radio-group>
@@ -153,8 +154,8 @@
               </a-popconfirm>
             </div>
 
-            <!-- 全屏按钮 -->
-            <div v-if="isControlling" class="rc-group rc-group-fs">
+            <!-- 全屏按钮：接管中或车辆在线均可用 -->
+            <div v-if="isControlling || isVehicleOnline" class="rc-group rc-group-fs">
               <a-button size="small" class="rc-btn rc-btn-fs" @click="toggleFullscreen">
                 <template #icon>
                   <AIcon :type="isFullscreen ? 'FullscreenExitOutlined' : 'FullscreenOutlined'" />
@@ -164,8 +165,8 @@
             </div>
           </div>
 
-          <!-- 视频区域 -->
-          <div v-if="isControlling" ref="videoSectionRef" class="video-section" :class="`layout-mode-${layoutMode}`">
+          <!-- 视频区域：接管中或车辆在线均显示 -->
+          <div v-if="isControlling || isVehicleOnline" ref="videoSectionRef" class="video-section" :class="`layout-mode-${layoutMode}`">
             <!-- 驾驶视图：前视自适应宽度 + 右侧三路，动态计算最优比例 -->
             <template v-if="layoutMode === 'd'">
               <div class="layout-d">
@@ -598,6 +599,105 @@
                 </div>
               </div>
             </template>
+            <!-- 方案 E：左中右 + PiP，倒车 CSS 交换位置（不重载视频） -->
+            <template v-else-if="layoutMode === 'e'">
+              <div class="layout-e">
+                <!-- 左列 -->
+                <div class="layout-e-left" :style="{ flex: layoutESideFlex }">
+                  <VideoCell
+                    :label="$t('parallel-driving.vehicle-detail.video-left')"
+                    :base-url="VIDEO_CONFIG.baseUrl"
+                    :app="VIDEO_CONFIG.app"
+                    :protocol="VIDEO_CONFIG.protocol"
+                    :stream="getVideoStream('left')"
+                    :url="getVideoUrl('left')"
+                  />
+                </div>
+                <!-- 中列：front + back 各渲染一次，CSS 交换大小位置 -->
+                <div class="layout-e-center" :style="{ flex: layoutECenterFlex }" :class="{ 'is-reverse': isReverse }">
+                  <!-- 前视频层 — 正常=主画面, 倒车=PiP -->
+                  <div class="layout-e-layer layout-e-layer-front">
+                    <VideoCell
+                      :label="$t('parallel-driving.vehicle-detail.video-front')"
+                      :base-url="VIDEO_CONFIG.baseUrl"
+                      :app="VIDEO_CONFIG.app"
+                      :protocol="VIDEO_CONFIG.protocol"
+                      :stream="getVideoStream('front')"
+                      :url="getVideoUrl('front')"
+                    />
+                  </div>
+                  <!-- 后视频层 — 正常=PiP, 倒车=主画面 -->
+                  <div class="layout-e-layer layout-e-layer-back">
+                    <VideoCell
+                      :label="$t('parallel-driving.vehicle-detail.video-back')"
+                      :base-url="VIDEO_CONFIG.baseUrl"
+                      :app="VIDEO_CONFIG.app"
+                      :protocol="VIDEO_CONFIG.protocol"
+                      :stream="getVideoStream('back')"
+                      :url="getVideoUrl('back')"
+                    />
+                  </div>
+                  <!-- PiP 档位角标：覆盖在 PiP 小窗右下 -->
+                  <span class="layout-e-pip-badge" :class="{ 'is-reverse': isReverse }">
+                    {{ isReverse ? 'R' : 'D' }}
+                  </span>
+                  <!-- HUD 叠加层：转向灯集成到底栏，速度两侧 -->
+                  <div class="layout-e-hud-overlay">
+                    <div class="status-hud status-hud-xiaomi layout-e-hud">
+                      <div class="hud-left">
+                        <div class="hud-gear-row">
+                          <div class="hud-drivemode-pair" title="驾驶模式：M=Manual(0)，A=Auto(1)">
+                            <span class="hud-dm-circle" :class="hudDriveModeClass(vehicleStatus.drivemode)">{{ hudDriveModeChar(vehicleStatus.drivemode) }}</span>
+                          </div>
+                          <div class="hud-gear-sep" aria-hidden="true"></div>
+                          <span v-for="(ch, idx) in HUD_GEAR_LETTERS" :key="ch" class="hud-gear-char" :class="{ active: isHudGearActive(idx, vehicleStatus.gear) }">{{ ch }}</span>
+                        </div>
+                      </div>
+                      <div class="hud-ts-inline" :class="{ 'is-on': isLeftTurnOn, 'is-hazard': isHazardOn }">
+                        <svg class="hud-ts-arrow" viewBox="0 0 48 32"><path d="M20 2L2 16l18 14v-9h26v-10H20V2z"/></svg>
+                      </div>
+                      <div class="hud-center">
+                        <div class="hud-speed-block">
+                          <span class="hud-speed-num">{{ formatNumber(vehicleStatus.speed, 0, '--') }}</span>
+                          <span class="hud-speed-unit">km/h</span>
+                        </div>
+                        <div class="hud-bar"><div class="hud-bar-fill" :style="{ width: speedBarPercent }"></div></div>
+                      </div>
+                      <div class="hud-ts-inline" :class="{ 'is-on': isRightTurnOn, 'is-hazard': isHazardOn }">
+                        <svg class="hud-ts-arrow" viewBox="0 0 48 32"><path d="M28 2l18 14-18 14v-9H2v-10h26V2z"/></svg>
+                      </div>
+                      <div class="hud-right">
+                        <div class="hud-stat">
+                          <span class="hud-stat-label">转向</span>
+                          <span class="hud-stat-value">{{ formatNumber(vehicleStatus.steering, 0, '--') }}</span>
+                        </div>
+                        <span class="hud-stat-sep" />
+                        <div class="hud-stat">
+                          <span class="hud-stat-label">油门</span>
+                          <span class="hud-stat-value">{{ formatPercentInt(vehicleStatus.accelerator) }}</span>
+                        </div>
+                        <span class="hud-stat-sep" />
+                        <div class="hud-stat">
+                          <span class="hud-stat-label">制动</span>
+                          <span class="hud-stat-value hud-stat-brake" :class="{ 'is-active': Number(vehicleStatus.brake) > 0 }">{{ formatPercentInt(vehicleStatus.brake) }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- 右列 -->
+                <div class="layout-e-right" :style="{ flex: layoutESideFlex }">
+                  <VideoCell
+                    :label="$t('parallel-driving.vehicle-detail.video-right')"
+                    :base-url="VIDEO_CONFIG.baseUrl"
+                    :app="VIDEO_CONFIG.app"
+                    :protocol="VIDEO_CONFIG.protocol"
+                    :stream="getVideoStream('right')"
+                    :url="getVideoUrl('right')"
+                  />
+                </div>
+              </div>
+            </template>
           </div>
           </div>
         </a-card>
@@ -635,11 +735,11 @@ const cockpitLoading = ref(false)
 const cockpitDevices = ref<Array<{ label: string; value: string }>>([])
 const selectedVideoDirections = ref<string[]>(['front', 'back', 'left', 'right'])
 const LAYOUT_STORAGE_KEY = 'parallel-driving-layout-mode'
-const layoutMode = ref<'a' | 'b' | 'c' | 'd'>(
+const layoutMode = ref<'a' | 'b' | 'c' | 'd' | 'e'>(
   (() => {
     const v = localStorage.getItem(LAYOUT_STORAGE_KEY) as string
     if (v === 'b') return 'd'
-    return (v === 'a' || v === 'c' || v === 'd') ? v : 'd'
+    return (v === 'a' || v === 'c' || v === 'd' || v === 'e') ? v : 'd'
   })()
 )
 watch(layoutMode, (v) => localStorage.setItem(LAYOUT_STORAGE_KEY, v))
@@ -695,8 +795,8 @@ const POLL_INTERVAL = 5000 // 5秒轮询一次，更新在线状态和远控状�
 
 // 视频流配置（可后续改为从配置或设备元数据读取）
 const VIDEO_CONFIG = {
-  baseUrl: 'http://10.10.3.109',
-  app: 'dp007_local',
+  baseUrl: 'http://118.145.132.112',
+  app: 'dp010',
   protocol: 'webrtc' as 'webrtc' | 'm3u8' | 'flv',
   streams: {
     front: 'cam_f_7',
@@ -735,6 +835,7 @@ const getVideoUrl = (key: string) => {
   return '' // webrtc 用 WebRtcPlayer，不走 url
 }
 
+/** 档位格式化：0=P, 1=R, 2=N, 3=D（与 e2e_control_v2 requested_gear 编码一致） */
 const formatGear = (gear: number | undefined) => {
   if (gear == null) return '-'
   const map: Record<number, string> = { 0: 'P', 1: 'R', 2: 'N', 3: 'D' }
@@ -770,6 +871,20 @@ const hudDriveModeClass = (dm: any) => {
   return 'is-unknown'
 }
 
+/** 倒车检测：gear=1 为 R 档，用于 layout-e 的 CSS 层交换 */
+const isReverse = computed(() => Number(vehicleStatus.value?.gear) === 1)
+
+/**
+ * 左中右布局(e) flex 比例计算
+ *
+ * 视频 960×768 → AR=1.25。中间占满全高，宽度 = h × 1.25；
+ * 左右各占剩余空间的一半。保底：中间 50~85%，两侧各 ≥7.5%
+ */
+/** 左中右布局(e)：中间 flex 占比，左右各占剩余一半 */
+const LAYOUT_E_CENTER_RATIO = 0.46
+const layoutECenterFlex = Math.round(LAYOUT_E_CENTER_RATIO * 1000)
+const layoutESideFlex = Math.round((1000 - layoutECenterFlex) / 2)
+
 const HUD_SPEED_MAX = 120
 const speedBarPercent = computed(() => {
   const s = vehicleStatus.value?.speed
@@ -799,6 +914,8 @@ const getDictValue = (val: any): string => {
 
 const normalizeState = (val: any) => getDictValue(val).toString().toLowerCase()
 const isActiveState = (val: any) => normalizeState(val) === 'active'
+const isVehicleOnline = computed(() => vehicle.value?.state?.value === 'online')
+
 const canCloudRelease = computed(() => {
   const v = vehicle.value
   if (!v) return false
@@ -854,12 +971,20 @@ const normalizePedal = (val: any): number | undefined => {
   return Math.max(0, Math.min(1, n))
 }
 
+/**
+ * CAN vcu_veh_curr_gear → 前端统一编码
+ * CAN: 0=N, 1=D1, 2=D2, 3=D3, 4=AM1, 5=AM2, 6=AM3, 14=R, 15=Invalid
+ * 前端: 0=P, 1=R, 2=N, 3=D
+ */
 const mapGear = (val: any): number | undefined => {
   if (val == null) return undefined
   const n = Number(val)
   if (!Number.isFinite(n)) return undefined
-  // formatGear: 0=P,1=R,2=N,3=D
-  return n
+  if (n === 0) return 2              // CAN N档 → 前端 N(2)
+  if (n >= 1 && n <= 6) return 3     // CAN D1~AM3 → 前端 D(3)
+  if (n === 14) return 1             // CAN R档 → 前端 R(1)
+  if (n === 15) return undefined     // Invalid
+  return undefined                   // Reserved(7~13)
 }
 
 // 车速系数：车端若为 0.1 km/h 分辨率则设为 0.1，否则 1（原始值即 km/h）
@@ -1095,20 +1220,20 @@ const stopPolling = () => {
   }
 }
 
-// 启动 WebSocket：车速等实时状态（远控中时）
+// 启动 WebSocket：车速等实时状态
+// 接管模式: vehicleId + cockpitId；监控模式(在线未接管): 仅 vehicleId
 const initWebSocket = () => {
-  if (!selectedCockpitId.value || !vehicle.value?.deviceId || !isControlling.value) {
-    closeWebSocket()
-    return
-  }
+  const deviceId = vehicle.value?.deviceId
+  if (!deviceId) { closeWebSocket(); return }
+  const cockpitId = isControlling.value ? selectedCockpitId.value : undefined
+  if (isControlling.value && !selectedCockpitId.value) { closeWebSocket(); return }
   closeParallelDrivingWebSocket()
   initParallelDrivingWebSocket(
-    vehicle.value.deviceId,
-    selectedCockpitId.value,
+    deviceId,
+    cockpitId,
     (data) => {
       if (data.type === 'vehicle-status' && data.properties) {
         const mapped = applyChassisStatusToVehicleStatus(data.properties)
-        // 仅用 chassis_status 解析结果更新面板，不合并 data.properties，避免其它上报（如单独 speed: 26）覆盖为错误显示
         vehicleStatus.value = {
           ...vehicleStatus.value,
           ...mapped,
@@ -1155,9 +1280,14 @@ watch(vehicleId, (id) => {
 }, { immediate: true })
 
 watch(
-  () => [vehicle.value?.deviceId, isControlling.value, selectedCockpitId.value],
+  () => [vehicle.value?.deviceId, isControlling.value, selectedCockpitId.value, vehicle.value?.state?.value],
   () => {
-    if (vehicle.value && isControlling.value && selectedCockpitId.value && vehicle.value.boundCockpitId === selectedCockpitId.value) {
+    if (!vehicle.value?.deviceId) { closeWebSocket(); return }
+    // 接管模式：需要 cockpitId 且匹配
+    if (isControlling.value && selectedCockpitId.value && vehicle.value.boundCockpitId === selectedCockpitId.value) {
+      initWebSocket()
+    // 监控模式：车辆在线即可（仅 vehicleId，无需 cockpitId）
+    } else if (vehicle.value.state?.value === 'online') {
       initWebSocket()
     } else {
       closeWebSocket()
@@ -2181,6 +2311,307 @@ onUnmounted(() => {
   object-fit: contain;
 }
 .fullscreen-target:not(:fullscreen) .video-section.layout-mode-d {
+  flex: 1;
+  min-height: 0;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  border-top: none !important;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Layout E：左中右 + CSS 层交换（不重载视频） ──
+ *
+ *  front / back 各只渲染一次，通过 CSS position 切换大小位置。
+ *  HUD 独立层，始终覆盖在主画面上方。
+ *  三栏底部对齐，960:768 等比，中间自然更高。
+ *
+ *  D 档:                          R 档 (is-reverse):
+ *  ┌────────┬───────────────┬────────┐  ┌────────┬───────────────┬────────┐
+ *  │        │ ┌PiP 后┐      │        │  │        │ ┌PiP 前┐      │        │
+ *  │        │ └──────┘      │        │  │        │ └──────┘      │        │
+ *  │        │   前 (主)     │        │  │        │   后 (主)     │        │
+ *  │  左    │   + HUD      │   右   │  │  左    │   + HUD      │   右   │
+ *  └────────┴───────────────┴────────┘  └────────┴───────────────┴────────┘
+ */
+.layout-e {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  gap: 2px;
+  background: #0a0a0a;
+  padding: 2px;
+}
+
+/* ── 左右侧栏 ── */
+.layout-e-left,
+.layout-e-right {
+  min-width: 0;
+  position: relative;
+  aspect-ratio: 960 / 768;
+  max-height: 100%;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.4);
+}
+.layout-e-left :deep(.video-box),
+.layout-e-right :deep(.video-box) {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.layout-e-left :deep(.video-wrapper),
+.layout-e-right :deep(.video-wrapper) {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.layout-e-left :deep(.video-wrapper .webrtc-player),
+.layout-e-left :deep(.video-wrapper [class*="player"]),
+.layout-e-right :deep(.video-wrapper .webrtc-player),
+.layout-e-right :deep(.video-wrapper [class*="player"]),
+.layout-e-left :deep(.video-wrapper .video-placeholder),
+.layout-e-right :deep(.video-wrapper .video-placeholder) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.layout-e-left :deep(video),
+.layout-e-right :deep(video) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center center;
+}
+
+/* ── 中间区域（层叠容器） ── */
+.layout-e-center {
+  min-width: 0;
+  position: relative;
+  aspect-ratio: 960 / 768;
+  max-height: 100%;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+}
+
+/* ── 视频层：共用样式 ── */
+.layout-e-layer {
+  overflow: hidden;
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.layout-e-layer :deep(.video-box) {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.layout-e-layer :deep(.video-wrapper) {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.layout-e-layer :deep(.video-wrapper .webrtc-player),
+.layout-e-layer :deep(.video-wrapper [class*="player"]),
+.layout-e-layer :deep(.video-wrapper .video-placeholder) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.layout-e-layer :deep(video) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ── 正常状态 (D/N/P)：前=主画面, 后=PiP ── */
+.layout-e-layer-front {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.layout-e-layer-back {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 20%;
+  aspect-ratio: 960 / 768;
+  z-index: 3;
+  border-radius: 4px;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  box-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(0, 0, 0, 0.3),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  background: #000;
+}
+.layout-e-layer-back :deep(.video-badge) {
+  font-size: 10px;
+  padding: 1px 4px;
+}
+
+/* ── 倒车状态 (R)：后=主画面, 前=PiP ── */
+.layout-e-center.is-reverse .layout-e-layer-back {
+  inset: 0;
+  width: auto;
+  aspect-ratio: auto;
+  z-index: 1;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.layout-e-center.is-reverse .layout-e-layer-back :deep(.video-badge) {
+  font-size: inherit;
+  padding: inherit;
+}
+.layout-e-center.is-reverse .layout-e-layer-front {
+  inset: auto;
+  top: 6px;
+  left: 6px;
+  width: 20%;
+  aspect-ratio: 960 / 768;
+  z-index: 3;
+  border-radius: 4px;
+  border: 1.5px solid rgba(255, 77, 79, 0.6);
+  box-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.7),
+    0 0 8px rgba(255, 77, 79, 0.15),
+    0 0 0 1px rgba(0, 0, 0, 0.3);
+  background: #000;
+}
+.layout-e-center.is-reverse .layout-e-layer-front :deep(.video-badge) {
+  font-size: 10px;
+  padding: 1px 4px;
+}
+
+/* PiP 内视频紧凑裁剪，主画面 contain */
+.layout-e-layer-back :deep(video) { object-fit: cover; }
+.layout-e-center.is-reverse .layout-e-layer-back :deep(video) { object-fit: contain; }
+.layout-e-center.is-reverse .layout-e-layer-front :deep(video) { object-fit: cover; }
+
+/* ── PiP 档位角标：浮于 PiP 小窗右下角 ── */
+.layout-e-pip-badge {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 2px;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(0, 0, 0, 0.6);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  /* 定位到 PiP 区域内的右下角：PiP top:6 left:6 w:20% AR:1.25 */
+  top: calc(6px + 20% / 1.25 - 20px);
+  left: calc(6px + 20% - 28px);
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.layout-e-pip-badge.is-reverse {
+  color: rgba(255, 77, 79, 0.95);
+  text-shadow: 0 0 6px rgba(255, 77, 79, 0.4);
+}
+
+/* ── HUD 叠加层：独立于视频，始终覆盖主画面 ── */
+.layout-e-hud-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.layout-e-hud-overlay .status-hud {
+  pointer-events: auto;
+}
+
+/* ── Layout-E HUD：字体放大 + 转向灯内联 ── */
+.layout-e-hud .hud-speed-num {
+  font-size: 42px;
+}
+.layout-e-hud .hud-speed-unit {
+  font-size: 14px;
+}
+.layout-e-hud .hud-stat-value {
+  font-size: 18px;
+}
+.layout-e-hud .hud-stat-label {
+  font-size: 10px;
+}
+.layout-e-hud .hud-gear-char {
+  font-size: 22px;
+}
+.layout-e-hud .hud-dm-circle {
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
+}
+.layout-e-hud .hud-stat-sep {
+  height: 24px;
+  margin: 0 8px;
+}
+.layout-e-hud .hud-stat {
+  min-width: 40px;
+}
+.layout-e-hud .hud-bar {
+  width: 140px;
+  height: 3px;
+}
+.layout-e-hud.status-hud-xiaomi {
+  padding: 24px 28px 12px;
+  gap: 12px;
+}
+
+/* ── 内联转向灯：速度两侧 ── */
+.hud-ts-inline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.10;
+  transition: opacity 0.15s ease;
+  padding: 0 4px;
+}
+.hud-ts-inline .hud-ts-arrow {
+  width: 36px;
+  height: 24px;
+}
+.hud-ts-inline.is-on {
+  opacity: 1;
+  animation: hud-ts-blink 0.8s step-end infinite;
+}
+.hud-ts-inline.is-on .hud-ts-arrow {
+  fill: #22c55e;
+  filter: drop-shadow(0 0 10px rgba(34, 197, 94, 0.7))
+          drop-shadow(0 0 24px rgba(34, 197, 94, 0.35));
+}
+.hud-ts-inline.is-hazard {
+  animation-duration: 0.6s;
+}
+.hud-ts-inline.is-hazard .hud-ts-arrow {
+  fill: #f59e0b;
+  filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.7))
+          drop-shadow(0 0 24px rgba(245, 158, 11, 0.35));
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-ts-inline.is-on,
+  .hud-ts-inline.is-hazard {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+.fullscreen-target:not(:fullscreen) .video-section.layout-mode-e {
   flex: 1;
   min-height: 0;
   margin-top: 0 !important;
