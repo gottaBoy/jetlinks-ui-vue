@@ -71,6 +71,8 @@ const videoRef = ref<HTMLVideoElement | null>(null)
 const loading = ref(true)
 const error = ref('')
 let pc: RTCPeerConnection | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+const RECONNECT_INTERVAL = 200
 
 // 播放时长（自开始播放起计时）
 const elapsedSeconds = ref(0)
@@ -228,15 +230,17 @@ const play = async () => {
     pc.ontrack = (e) => {
       if (videoRef.value && e.streams[0]) {
         videoRef.value.srcObject = e.streams[0]
+        videoRef.value.play().catch(() => {})
         loading.value = false
+        error.value = ''
         startStatsMonitor()
         if (props.liveOnly) startElapsedTimer()
       }
     }
     pc.onconnectionstatechange = () => {
-      if (pc?.connectionState === 'failed' || pc?.connectionState === 'disconnected') {
-        error.value = `连接失败: ${pc.connectionState}`
-        loading.value = false
+      const state = pc?.connectionState
+      if (state === 'disconnected' || state === 'failed') {
+        scheduleReconnect()
       }
     }
 
@@ -293,7 +297,31 @@ const play = async () => {
   }
 }
 
+const cancelReconnect = () => {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+}
+
+const scheduleReconnect = () => {
+  cancelReconnect()
+  if (!props.baseUrl || !props.app || !props.stream) return
+  reconnectTimer = setTimeout(() => {
+    stop()
+    play()
+  }, RECONNECT_INTERVAL)
+}
+
+const ensureVideoPlaying = () => {
+  const v = videoRef.value
+  if (v && v.srcObject && v.paused) {
+    v.play().catch(() => {})
+  }
+}
+
 const stop = () => {
+  cancelReconnect()
   stopStatsMonitor()
   stopElapsedTimer()
   if (pc) {
@@ -325,7 +353,18 @@ const retry = () => {
   play()
 }
 
-onBeforeUnmount(stop)
+const onFsChange = () => ensureVideoPlaying()
+const onVisChange = () => {
+  if (!document.hidden) ensureVideoPlaying()
+}
+document.addEventListener('fullscreenchange', onFsChange)
+document.addEventListener('visibilitychange', onVisChange)
+
+onBeforeUnmount(() => {
+  stop()
+  document.removeEventListener('fullscreenchange', onFsChange)
+  document.removeEventListener('visibilitychange', onVisChange)
+})
 
 defineExpose({ play, stop, retry })
 </script>

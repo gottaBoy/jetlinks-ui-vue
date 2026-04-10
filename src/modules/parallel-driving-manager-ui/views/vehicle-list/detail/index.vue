@@ -1679,7 +1679,50 @@ onUnmounted(() => {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
-/* hud-metrics / hud-chassis-plain 已替换为 hud-stat 结构 */
+/* ── 全屏：Layout-E（左中右）适配 ── */
+.fullscreen-target:fullscreen .layout-e,
+.fullscreen-target:-webkit-full-screen .layout-e,
+.fullscreen-target:-moz-full-screen .layout-e {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+}
+.fullscreen-target:fullscreen .layout-e-left,
+.fullscreen-target:-webkit-full-screen .layout-e-left,
+.fullscreen-target:-moz-full-screen .layout-e-left,
+.fullscreen-target:fullscreen .layout-e-center,
+.fullscreen-target:-webkit-full-screen .layout-e-center,
+.fullscreen-target:-moz-full-screen .layout-e-center,
+.fullscreen-target:fullscreen .layout-e-right,
+.fullscreen-target:-webkit-full-screen .layout-e-right,
+.fullscreen-target:-moz-full-screen .layout-e-right {
+  min-height: 0;
+  min-width: 0;
+}
+.fullscreen-target:fullscreen .layout-e .video-box,
+.fullscreen-target:-webkit-full-screen .layout-e .video-box,
+.fullscreen-target:-moz-full-screen .layout-e .video-box {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: #000 !important;
+}
+.fullscreen-target:fullscreen .layout-e .video-wrapper,
+.fullscreen-target:-webkit-full-screen .layout-e .video-wrapper,
+.fullscreen-target:-moz-full-screen .layout-e .video-wrapper {
+  flex: 1;
+  min-height: 0;
+  background-color: #000 !important;
+}
+.fullscreen-target:fullscreen .layout-e .video-wrapper video,
+.fullscreen-target:-webkit-full-screen .layout-e .video-wrapper video,
+.fullscreen-target:-moz-full-screen .layout-e .video-wrapper video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
 
 /* 全屏：前视 HUD 尺寸放大回全屏比例 */
 .fullscreen-target:fullscreen .video-section .status-hud-xiaomi,
