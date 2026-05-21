@@ -1,16 +1,53 @@
 <template>
-  <j-page-container :showBack="true" @back="handleBack">
-    <template #title>
-      <span>{{ vehicle?.deviceName || vehicle?.deviceId || $t('parallel-driving.vehicle-detail.title') }}</span>
-      <a-tag v-if="vehicle" :color="getStateColor(vehicle.state?.value)" style="margin-left: 12px">
-        {{ vehicle.state?.text || vehicle.state?.value || '-' }}
-      </a-tag>
-    </template>
+  <div
+    class="pd-vehicle-detail-root"
+    :class="{ 'pd-vehicle-detail-root--remote-focus': isRemoteFocusEntry }"
+  >
+    <header v-if="isRemoteFocusEntry" class="pd-remote-focus-app-bar" role="banner">
+      <div class="pd-remote-focus-app-bar__center">
+        <div class="pd-remote-focus-app-bar__title-row">
+          <h1 class="pd-remote-focus-app-bar__title">
+            {{ vehicle?.deviceName || vehicle?.deviceId || $t('parallel-driving.vehicle-detail.title') }}
+          </h1>
+          <div class="pd-remote-focus-app-bar__tags">
+            <a-tag v-if="vehicle" :color="getStateColor(vehicle.state?.value)">
+              {{ vehicle.state?.text || vehicle.state?.value || '—' }}
+            </a-tag>
+            <a-tag color="processing">{{ $t('parallel-driving.vehicle-detail.remote-focus-badge') }}</a-tag>
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pd-remote-focus-app-bar__exit"
+        :aria-label="$t('parallel-driving.vehicle-detail.remote-focus-close')"
+        @click="handleBack"
+      >
+        <CloseOutlined aria-hidden="true" />
+      </button>
+    </header>
+
+    <j-page-container
+      :pure="isRemoteFocusEntry"
+      :showBack="!isRemoteFocusEntry"
+      @back="handleBack"
+    >
+      <template v-if="!isRemoteFocusEntry" #title>
+        <span>{{ vehicle?.deviceName || vehicle?.deviceId || $t('parallel-driving.vehicle-detail.title') }}</span>
+        <a-tag v-if="vehicle" :color="getStateColor(vehicle.state?.value)" style="margin-left: 12px">
+          {{ vehicle.state?.text || vehicle.state?.value || '-' }}
+        </a-tag>
+      </template>
 
     <a-spin :spinning="loading">
       <div v-if="vehicle" class="vehicle-detail">
-        <!-- 基本信息 -->
-        <a-card :title="$t('parallel-driving.vehicle-detail.basic-info')" :bordered="false" style="margin-bottom: 16px">
+        <!-- 基本信息（远控专属入口隐藏，仅占位视频 + 顶栏） -->
+        <a-card
+          v-if="!isRemoteFocusEntry"
+          :title="$t('parallel-driving.vehicle-detail.basic-info')"
+          :bordered="false"
+          style="margin-bottom: 16px"
+        >
           <a-descriptions :column="2" bordered size="small">
             <a-descriptions-item :label="$t('parallel-driving.vehicle-list.device-id')">
               {{ vehicle.deviceId }}
@@ -42,20 +79,24 @@
         <!-- 远控操作区 -->
         <div class="remote-control-wrapper">
         <a-card
-          :title="$t('parallel-driving.vehicle-detail.remote-control')"
+          :title="isRemoteFocusEntry ? undefined : $t('parallel-driving.vehicle-detail.remote-control')"
           :bordered="false"
           style="margin-bottom: 16px"
-          :class="{ 'remote-control-card-fs': isFullscreen }"
+          :class="{ 'remote-control-card-fs': remoteFocusFullscreenUi, 'pd-rc-card--remote-focus': isRemoteFocusEntry }"
         >
           <!-- 全屏仅包含 card-body 内容：表单 + 视频 -->
           <div
             ref="fullscreenRef"
             class="pd-vehicle-detail-fs fullscreen-target card-body-fullscreen-wrapper"
-            :class="{ 'fs-layout-dark': isFullscreen }"
+            :class="{
+              'fs-layout-dark': remoteFocusFullscreenUi,
+              'pd-remote-focus-shell': isRemoteFocusEntry,
+              'pd-remote-focus-deck': isRemoteFocusEntry,
+            }"
           >
           <div class="remote-control-form" style="margin-bottom: 16px">
-            <span v-if="isFullscreen" class="rc-brand">ZERON</span>
-            <span v-if="isFullscreen" class="rc-divider" />
+            <span v-if="remoteFocusFullscreenUi" class="rc-brand">ZERON</span>
+            <span v-if="remoteFocusFullscreenUi" class="rc-divider" />
             <!-- 组 1：驾驶舱 -->
             <div class="rc-group rc-group-cockpit">
               <span class="rc-label">{{ $t('parallel-driving.vehicle-detail.select-cockpit') }}</span>
@@ -113,66 +154,76 @@
               </div>
             </div>
 
-            <span class="rc-divider" />
-
-            <!-- 组 3：布局 -->
-            <div class="rc-group rc-group-layout">
-              <span class="rc-label">布局</span>
-              <a-radio-group v-model:value="layoutMode" size="small" class="rc-layout-radio">
-                <a-radio-button value="d">驾驶</a-radio-button>
-                <a-radio-button value="e">左中右</a-radio-button>
-                <a-radio-button value="a">2×2</a-radio-button>
-                <a-radio-button value="c">前全宽</a-radio-button>
-              </a-radio-group>
-            </div>
-
-            <span class="rc-divider" />
-
-            <!-- 组 3.5：远控预置（开始远控成功后自动下发到车） -->
-            <div class="rc-group rc-group-preflight">
-              <span class="rc-label">{{ $t('parallel-driving.vehicle-detail.remote-preflight') }}</span>
-              <div class="rc-preflight-inner">
-                <div class="rc-preflight-row">
-                  <span class="rc-preflight-field">
-                    <span class="rc-preflight-name">{{ $t('parallel-driving.vehicle-detail.preflight-epb') }}</span>
-                    <a-switch v-model:checked="remotePrefEpb" size="small" />
-                  </span>
-                  <span class="rc-preflight-field">
-                    <span class="rc-preflight-name">{{ $t('parallel-driving.vehicle-detail.preflight-horn') }}</span>
-                    <a-switch v-model:checked="remotePrefHorn" size="small" />
-                  </span>
-                  <span class="rc-preflight-field">
-                    <span class="rc-preflight-name">{{ $t('parallel-driving.vehicle-detail.preflight-low') }}</span>
-                    <a-switch v-model:checked="remotePrefLowBeam" size="small" />
-                  </span>
-                  <span class="rc-preflight-field">
-                    <span class="rc-preflight-name">{{ $t('parallel-driving.vehicle-detail.preflight-high') }}</span>
-                    <a-switch v-model:checked="remotePrefHighBeam" size="small" />
-                  </span>
-                  <span class="rc-preflight-field">
-                    <span class="rc-preflight-name">{{ $t('parallel-driving.vehicle-detail.preflight-aux') }}</span>
-                    <a-switch v-model:checked="remotePrefAuxLight" size="small" />
-                  </span>
-                </div>
-                <div class="rc-preflight-row rc-preflight-row-drive">
-                  <span class="rc-preflight-name rc-preflight-drive-title">{{ $t('parallel-driving.vehicle-detail.preflight-drive') }}</span>
-                  <a-radio-group
-                    v-model:value="remotePrefDriveMode"
-                    size="small"
-                    class="rc-preflight-drive-radio"
-                  >
-                    <a-radio :value="0">{{ $t('parallel-driving.vehicle-detail.preflight-dm-m') }}</a-radio>
-                    <a-radio :value="1">{{ $t('parallel-driving.vehicle-detail.preflight-dm-a') }}</a-radio>
-                    <a-radio
-                      :value="2"
-                      :disabled="!canSelectRemoteC"
-                      :title="!canSelectRemoteC ? remoteCModeDisabledReason : undefined"
-                    >
-                      {{ $t('parallel-driving.vehicle-detail.preflight-dm-c') }}
-                    </a-radio>
-                  </a-radio-group>
-                </div>
+            <!-- 组 3：布局（远控工作台固定左中右，不提供切换） -->
+            <template v-if="!isRemoteFocusEntry">
+              <span class="rc-divider" />
+              <div class="rc-group rc-group-layout">
+                <span class="rc-label">布局</span>
+                <a-radio-group v-model:value="layoutMode" size="small" class="rc-layout-radio">
+                  <a-radio-button value="d">驾驶</a-radio-button>
+                  <a-radio-button value="e">左中右</a-radio-button>
+                  <a-radio-button value="a">2×2</a-radio-button>
+                  <a-radio-button value="c">前全宽</a-radio-button>
+                </a-radio-group>
               </div>
+              <span class="rc-divider" />
+            </template>
+              <div class="rc-group rc-group-preflight">
+              <!-- 驾驶模式选项：仅作为下发偏好，不同步底盘实际值；实际值单独显示 -->
+              <div class="rc-preflight-row rc-preflight-row-drive">
+                <span class="rc-preflight-name rc-preflight-drive-title">{{ $t('parallel-driving.vehicle-detail.preflight-drive') }}</span>
+                <!-- 底盘当前实际驾驶模式 -->
+                <span class="rc-pref-dm-cur">{{ (['M','A','R'] as const)[Number(vehicleStatus.drivemode)] ?? '--' }}</span>
+                <!-- 分段按钮：高亮=上次发送的偏好，点击触发下发；不跟随底盘实际值 -->
+                <a-radio-group
+                  :value="uiDriveMode"
+                  size="small"
+                  class="rc-preflight-drive-radio"
+                  @change="handleDriveModeChange"
+                >
+                  <a-radio-button :value="0">{{ $t('parallel-driving.vehicle-detail.preflight-dm-m') }}</a-radio-button>
+                  <a-radio-button :value="1">{{ $t('parallel-driving.vehicle-detail.preflight-dm-a') }}</a-radio-button>
+                  <a-radio-button
+                    :value="2"
+                    :disabled="false && !canSelectRemoteC"
+                    :title="!canSelectRemoteC ? remoteCModeDisabledReason : undefined"
+                  >
+                    {{ $t('parallel-driving.vehicle-detail.preflight-dm-c') }}
+                  </a-radio-button>
+                </a-radio-group>
+              </div>
+              <!-- 远控预置：仅在远控模式(R/2)下显示 -->
+              <template v-if="Number(uiDriveMode) === 2">
+                <span class="rc-label">{{ $t('parallel-driving.vehicle-detail.remote-preflight') }}</span>
+                <div class="rc-preflight-inner">
+                  <div class="rc-preflight-row">
+                    <span class="rc-preflight-field">
+                      <span class="rc-preflight-name">{{ $t('parallel-driving.vehicle-detail.preflight-epb') }}</span>
+                      <a-switch v-model:checked="remotePrefEpb" size="small" @change="(v: boolean) => handlePrefSwitchChange('EPB', v)" />
+                    </span>
+                    <span class="rc-preflight-field">
+                      <span class="rc-preflight-name">{{ $t('parallel-driving.vehicle-detail.preflight-horn') }}</span>
+                      <a-switch v-model:checked="remotePrefHorn" size="small" @change="(v: boolean) => handlePrefSwitchChange('HORN', v)" />
+                    </span>
+                    <span class="rc-preflight-field">
+                      <span class="rc-preflight-name">{{ $t('parallel-driving.vehicle-detail.preflight-low') }}</span>
+                      <a-switch v-model:checked="remotePrefLowBeam" size="small" @change="(v: boolean) => handlePrefSwitchChange('LOW_BEAM', v)" />
+                    </span>
+                    <span class="rc-preflight-field">
+                      <span class="rc-preflight-name">{{ $t('parallel-driving.vehicle-detail.preflight-high') }}</span>
+                      <a-switch v-model:checked="remotePrefHighBeam" size="small" @change="(v: boolean) => handlePrefSwitchChange('HIGH_BEAM', v)" />
+                    </span>
+                    <span class="rc-preflight-field">
+                      <span class="rc-preflight-name">{{ $t('parallel-driving.vehicle-detail.preflight-aux') }}</span>
+                      <a-switch v-model:checked="remotePrefAuxLight" size="small" @change="(v: boolean) => handlePrefSwitchChange('AUX_LIGHT', v)" />
+                    </span>
+                    <span class="rc-preflight-field">
+                      <span class="rc-preflight-name">{{ $t('parallel-driving.vehicle-detail.preflight-hazard') }}</span>
+                      <a-switch v-model:checked="remotePrefHazard" size="small" @change="(v: boolean) => handlePrefSwitchChange('HAZARD_LIGHT', v)" />
+                    </span>
+                  </div>
+                </div>
+              </template>
             </div>
 
             <span class="rc-divider" />
@@ -225,7 +276,7 @@
             </div>
 
             <!-- 全屏按钮：接管中或车辆在线均可用 -->
-            <div v-if="isControlling || isVehicleOnline" class="rc-group rc-group-fs">
+            <div v-if="showVideoMonitoringSection" class="rc-group rc-group-fs">
               <a-button size="small" class="rc-btn rc-btn-fs" @click="toggleFullscreen">
                 <template #icon>
                   <AIcon :type="isFullscreen ? 'FullscreenExitOutlined' : 'FullscreenOutlined'" />
@@ -237,7 +288,7 @@
 
           <!-- 未在线且无接管：监控区占位说明（避免视频区整段消失后留白） -->
           <div
-            v-if="vehicle && !isControlling && !isVehicleOnline"
+            v-if="vehicle && !isControlling && !isVehicleOnline && !isRemoteFocusEntry"
             class="vehicle-offline-monitor-placeholder"
             role="status"
             :aria-label="$t('parallel-driving.vehicle-detail.offline-monitor-title')"
@@ -268,12 +319,13 @@
           </div>
 
           <!-- 视频区域：接管中或车辆在线均显示 -->
-          <div v-if="isControlling || isVehicleOnline" ref="videoSectionRef" class="video-section" :class="`layout-mode-${layoutMode}`">
+          <div v-if="showVideoMonitoringSection" ref="videoSectionRef" class="video-section" :class="layoutSectionClass">
             <!-- 方案 E：左中右 + PiP，倒车 CSS 交换位置（不重载视频） -->
-            <template v-if="layoutMode === 'e'">
+            <template v-if="isRemoteFocusEntry || layoutMode === 'e'">
               <div class="layout-e" :class="{ 'layout-e--hitch-sides': showRearHitchCams }">
                 <!-- 左列：挂后时在左视下方叠挂后左 cam_b_17 -->
                 <div class="layout-e-left" :style="layoutESideColumnStyle">
+                  <!-- 始终单层 stack + 左眼固定首槽：避免勾选挂后 v-if/else 换掉整棵树导致左眼/右眼 WebRtc 重挂载 -->
                   <div
                     class="layout-e-side-stack"
                     :class="{ 'layout-e-side-stack--solo': !showRearHitchCams }"
@@ -318,6 +370,11 @@
                       :show-cloud-link-rtt="showFrontCloudLinkRtt"
                       :cloud-link-network-rtt-ms="vehicleStatus.cloudLinkNetworkRttMs"
                     />
+                    <!-- R 档 PiP 为前视：角标锚在真实 PiP 层右下角，避免与 center 上 calc 错位 -->
+                    <span
+                      v-if="showLayoutEPipGearBadge && isReverse"
+                      class="layout-e-pip-badge layout-e-pip-badge--anchored is-reverse"
+                    >R</span>
                   </div>
                   <!-- 后视频层 — 正常=PiP, 倒车=主画面 -->
                   <div class="layout-e-layer layout-e-layer-back">
@@ -329,11 +386,12 @@
                       :stream="getVideoStream('back')"
                       :url="getVideoUrl('back')"
                     />
+                    <!-- D 档 PiP 为后视：同上 -->
+                    <span
+                      v-if="showLayoutEPipGearBadge && !isReverse"
+                      class="layout-e-pip-badge layout-e-pip-badge--anchored"
+                    >D</span>
                   </div>
-                  <!-- PiP 档位角标：覆盖在 PiP 小窗右下 -->
-                  <span class="layout-e-pip-badge" :class="{ 'is-reverse': isReverse }">
-                    {{ isReverse ? 'R' : 'D' }}
-                  </span>
                   <!-- 前视距离引导：须叠在视频层之上；layout-e 内前视在 z-index:1 子层，无法压过 HUD(5)，故在此单独挂一层 -->
                   <FrontCameraDistanceGuide
                     v-if="showFrontAuxGuideVisible"
@@ -1426,7 +1484,8 @@
         </div>
       </div>
     </a-spin>
-  </j-page-container>
+    </j-page-container>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -1442,22 +1501,23 @@ import {
   release,
   emergencyStop,
   sendControlCommand,
-} from '../../../api/parallel-driving'
+} from '../../api/parallel-driving'
 import {
   initParallelDrivingWebSocket,
   closeParallelDrivingWebSocket,
   isParallelDrivingWebSocketActive,
-} from '../../../utils/websocket'
-import WebRtcPlayer from '../../../components/WebRtcPlayer.vue'
-import VideoCell from '../../../components/VideoCell.vue'
-import HudSteerStatBlock from '../../../components/HudSteerStatBlock.vue'
-import HudTurnInnerWheel from '../../../components/HudTurnInnerWheel.vue'
-import HudHeadlightBeamIcon from '../../../components/HudHeadlightBeamIcon.vue'
-import HudAuxStatusRow from '../../../components/HudAuxStatusRow.vue'
-import FrontCameraDistanceGuide from '../../../components/FrontCameraDistanceGuide.vue'
-import { DEFAULT_FRONT_GUIDE_ROWS } from '../../../components/front-camera-guide-config'
-import { useVideoCalibrationOverlayRect } from '../../../components/useVideoCalibrationOverlayRect'
-import { wheelAngleDegFromSteerAngleDeg } from '../../../utils/steer-wheel-knuckle-map'
+} from '../../utils/websocket'
+import WebRtcPlayer from '../../components/WebRtcPlayer.vue'
+import VideoCell from '../../components/VideoCell.vue'
+import HudSteerStatBlock from '../../components/HudSteerStatBlock.vue'
+import HudTurnInnerWheel from '../../components/HudTurnInnerWheel.vue'
+import HudHeadlightBeamIcon from '../../components/HudHeadlightBeamIcon.vue'
+import { CloseOutlined } from '@ant-design/icons-vue'
+import HudAuxStatusRow from '../../components/HudAuxStatusRow.vue'
+import FrontCameraDistanceGuide from '../../components/FrontCameraDistanceGuide.vue'
+import { DEFAULT_FRONT_GUIDE_ROWS } from '../../components/front-camera-guide-config'
+import { useVideoCalibrationOverlayRect } from '../../components/useVideoCalibrationOverlayRect'
+import { wheelAngleDegFromSteerAngleDeg } from '../../utils/steer-wheel-knuckle-map'
 
 /** 前/左右辅助线分控；v1 无记录时回退读 legacy v2（旧「引导线」单开关） */
 const FRONT_AUX_GUIDE_LS_KEY = 'parallel-driving.showFrontAuxGuide.v1'
@@ -1465,10 +1525,24 @@ const SIDE_AUX_GUIDE_LS_KEY = 'parallel-driving.showSideAuxGuide.v1'
 const FRONT_DISTANCE_GUIDE_LEGACY_LS_KEY = 'parallel-driving.showFrontDistanceGuide.v2'
 
 const { t: $t } = useI18n()
+const props = withDefaults(
+  defineProps<{
+    /** standard：车辆详情；remote-focus：远控工作台独立页 */
+    presentation?: 'standard' | 'remote-focus'
+  }>(),
+  { presentation: 'standard' },
+)
 const route = useRoute()
 const router = useRouter()
 
-const vehicleId = computed(() => route.params.id as string)
+const vehicleId = computed(() => String(route.params.id || ''))
+
+/** 远控工作台：独立路由 presentation；兼容旧书签 ?mode=remote-focus（左中右 + 沉浸式顶栏） */
+const isRemoteFocusEntry = computed(
+  () =>
+    props.presentation === 'remote-focus' || String(route.query.mode || '') === 'remote-focus',
+)
+
 const loading = ref(true)
 const vehicle = ref<any>(null)
 const selectedCockpitId = ref('')
@@ -1514,6 +1588,12 @@ const remoteCModeDisabledReason = computed(() => {
   return ''
 })
 const selectedVideoDirections = ref<string[]>(['front', 'back', 'left', 'right'])
+const hasFrontCameraSelected = computed(() => selectedVideoDirections.value.includes('front'))
+const hasBackCameraSelected = computed(() => selectedVideoDirections.value.includes('back'))
+/** 左中右中列：仅前后都勾选时才有 PiP/D·R 角标语义；角标放在 PiP 层内用 right/bottom 锚定，避免改 PiP 宽或勾选前后时与全局 calc 错位 */
+const showLayoutEPipGearBadge = computed(
+  () => hasFrontCameraSelected.value && hasBackCameraSelected.value
+)
 /** 各布局均只播放已勾选方向（与「前全宽」一致）；未勾选则不拉流。「左中右」+挂后：左列左+挂后左、右列右+挂后右 */
 const showRearHitchCams = ref(false)
 const showFrontAuxGuide = ref(true)
@@ -1550,12 +1630,39 @@ watch(showSideAuxGuide, (v) => {
 const LAYOUT_STORAGE_KEY = 'parallel-driving-layout-mode'
 const layoutMode = ref<'a' | 'b' | 'c' | 'd' | 'e'>(
   (() => {
+    if (
+      props.presentation === 'remote-focus' ||
+      String(route.query.mode || '') === 'remote-focus'
+    ) {
+      return 'e'
+    }
     const v = localStorage.getItem(LAYOUT_STORAGE_KEY) as string
     if (v === 'b') return 'd'
-    return (v === 'a' || v === 'c' || v === 'd' || v === 'e') ? v : 'd'
-  })()
+    return v === 'a' || v === 'c' || v === 'd' || v === 'e' ? v : 'd'
+  })(),
 )
-watch(layoutMode, (v) => localStorage.setItem(LAYOUT_STORAGE_KEY, v))
+watch(layoutMode, (v) => {
+  if (isRemoteFocusEntry.value) return
+  try {
+    localStorage.setItem(LAYOUT_STORAGE_KEY, v)
+  } catch {
+    /* ignore */
+  }
+})
+
+watch(
+  isRemoteFocusEntry,
+  (v) => {
+    if (v) layoutMode.value = 'e'
+  },
+  { immediate: true },
+)
+
+/** 视频区外层 class：远控页恒为左中右，避免 layoutMode 与 localStorage 对齐前误用驾驶视图样式 */
+const layoutSectionClass = computed(() => {
+  if (isRemoteFocusEntry.value) return 'layout-mode-e'
+  return `layout-mode-${layoutMode.value}`
+})
 
 /** 挂后仅「左中右」布局在左右列叠放辅路；非 e 时勾选则切到 e */
 watch(showRearHitchCams, (on) => {
@@ -1576,6 +1683,7 @@ const readRemotePrefFromLs = () => {
       low: boolean
       high: boolean
       aux: boolean
+      hazard: boolean
       drive: number
     }>
   } catch {
@@ -1588,6 +1696,7 @@ const remotePrefHorn = ref(preflightInit?.horn === true)
 const remotePrefLowBeam = ref(preflightInit?.low === true)
 const remotePrefHighBeam = ref(preflightInit?.high === true)
 const remotePrefAuxLight = ref(preflightInit?.aux === true)
+const remotePrefHazard = ref(preflightInit?.hazard === true)
 const remotePrefDriveMode = ref(
   [0, 1, 2].includes(Number(preflightInit?.drive)) ? (preflightInit!.drive as 0 | 1 | 2) : 0
 )
@@ -1601,6 +1710,7 @@ const saveRemotePrefToLs = () => {
         low: remotePrefLowBeam.value,
         high: remotePrefHighBeam.value,
         aux: remotePrefAuxLight.value,
+        hazard: remotePrefHazard.value,
         drive: remotePrefDriveMode.value,
       })
     )
@@ -1609,16 +1719,58 @@ const saveRemotePrefToLs = () => {
   }
 }
 watch(
-  [remotePrefEpb, remotePrefHorn, remotePrefLowBeam, remotePrefHighBeam, remotePrefAuxLight, remotePrefDriveMode],
+  [remotePrefEpb, remotePrefHorn, remotePrefLowBeam, remotePrefHighBeam, remotePrefAuxLight, remotePrefHazard, remotePrefDriveMode],
   saveRemotePrefToLs
 )
+
+/** 远控预置开关（EPB/HORN/LOW_BEAM/HIGH_BEAM/AUX_LIGHT/HAZARD_LIGHT）：toggle 立即下发指令 */
+const handlePrefSwitchChange = async (
+  controlType: 'EPB' | 'HORN' | 'LOW_BEAM' | 'HIGH_BEAM' | 'AUX_LIGHT' | 'HAZARD_LIGHT',
+  checked: boolean
+) => {
+  const cid = selectedCockpitId.value
+  const vid = vehicle.value?.deviceId
+  if (!cid || !vid) return
+  try {
+    await sendControlCommand({ cockpitDeviceId: cid, vehicleDeviceId: vid, controlType, params: { on: checked ? 1 : 0 } })
+  } catch (err) {
+    console.warn('handlePrefSwitchChange', controlType, err)
+  }
+}
+
+/** 驾驶模式切换：更新偏好并下发命令到车端。Radio 仅作为偏好选项，不同步底盘实际值 */
+const handleDriveModeChange = async (e: { target: { value: number } }) => {
+  const mode = e.target.value as 0 | 1 | 2
+  if (mode === 0) {
+    onlyMessage($t('parallel-driving.vehicle-detail.drive-mode-manual-forbidden'), 'warning')
+    return
+  }
+  uiDriveMode.value = mode
+  remotePrefDriveMode.value = mode
+  const cid = selectedCockpitId.value
+  const vid = vehicle.value?.deviceId
+  if (!cid || !vid) return
+  try {
+    await sendControlCommand({ cockpitDeviceId: cid, vehicleDeviceId: vid, controlType: 'DRIVE_MODE', params: { mode } })
+  } catch (err) {
+    console.warn('handleDriveModeChange', err)
+  }
+}
 
 const takingOver = ref(false)
 const releasing = ref(false)
 const isControlling = ref(false)
 const vehicleStatus = reactive<Record<string, any>>({})
+/** 驾驶模式偏好：仅存储用户选择，不随底盘状态变化；底盘实际值通过 vehicleStatus.drivemode 单独显示 */
+const uiDriveMode = ref<0 | 1 | 2>(
+  [0, 1, 2].includes(Number(remotePrefDriveMode.value)) ? (remotePrefDriveMode.value as 0 | 1 | 2) : 0
+)
 const emergencyStopping = ref(false)
 const isFullscreen = ref(false)
+/** 暗黑顶栏条带：浏览器全屏或与「远控工作台」新开页同源 */
+const remoteFocusFullscreenUi = computed(
+  () => isFullscreen.value || isRemoteFocusEntry.value
+)
 const fullscreenRef = ref<HTMLElement | null>(null)
 const videoSectionRef = ref<HTMLElement | null>(null)
 
@@ -1654,7 +1806,7 @@ watch(isControlling, (v) => {
 
 /** 全屏时下拉挂到全屏容器内，便于 scoped 深色样式命中 */
 const cockpitSelectGetPopupContainer = (triggerNode: HTMLElement) => {
-  if (isFullscreen.value && fullscreenRef.value) {
+  if ((isFullscreen.value || isRemoteFocusEntry.value) && fullscreenRef.value) {
     return fullscreenRef.value
   }
   return triggerNode.parentElement || document.body
@@ -1669,7 +1821,7 @@ const VIDEO_CONFIG = {
   protocol: 'webrtc' as 'webrtc' | 'm3u8' | 'flv',
   streams: {
     front: 'cam_f_12',
-    left: 'cam_f_11',
+    left: 'ipm',
     right: 'cam_r_13',
     back: 'cam_b_18',
     // rear_left: 'cam_l_19',
@@ -2012,6 +2164,16 @@ const isReleasableSessionState = (val: any) => {
 }
 const isVehicleOnline = computed(() => vehicle.value?.state?.value === 'online')
 
+/**
+ * 视频区是否挂载：远控工作台在已有 vehicle 数据后始终挂载网格（与在线轮询解耦），避免
+ * `isVehicleOnline` 抖动导致整块 `v-if` 卸载→全路 WebRtcPlayer 重建。详情页/嵌入仍为「接管或在线」。
+ */
+const showVideoMonitoringSection = computed(
+  () =>
+    !!vehicle.value &&
+    (isRemoteFocusEntry.value || isControlling.value || isVehicleOnline.value),
+)
+
 const canCloudRelease = computed(() => {
   const v = vehicle.value
   if (!v) return false
@@ -2344,7 +2506,11 @@ const applyRemotePreflight = async () => {
   const base = { cockpitDeviceId: cid, vehicleDeviceId: vid }
   let failedStep = ''
   let failedMsg = ''
-  /** 手刹/喇叭/灯光：与手柄在线无关。驾驶模式 M/A 随预置随时下发；C 仅在手柄可远控时下发 */
+  /**
+   * 安全顺序：先发 DRIVE_MODE 让车端缓存生效，再发灯光/EPB。
+   * 这样 remotejoystick 帧合并时已能携带正确的 drive_mode，
+   * 避免 takeover 后首帧以 drive_mode=0 进入 e2e_control 的乱序窗口。
+   */
   const run = async () => {
     const sendPref = async (step: string, controlType: string, params: Record<string, any>) => {
       failedStep = step
@@ -2362,11 +2528,7 @@ const applyRemotePreflight = async () => {
       }
     }
 
-    await sendPref('EPB', 'EPB', { on: remotePrefEpb.value ? 1 : 0 })
-    await sendPref('HORN', 'HORN', { on: remotePrefHorn.value ? 1 : 0 })
-    await sendPref('LOW_BEAM', 'LOW_BEAM', { on: remotePrefLowBeam.value ? 1 : 0 })
-    await sendPref('HIGH_BEAM', 'HIGH_BEAM', { on: remotePrefHighBeam.value ? 1 : 0 })
-    await sendPref('AUX_LIGHT', 'AUX_LIGHT', { on: remotePrefAuxLight.value ? 1 : 0 })
+    // ① 驾驶模式优先下发：车端 cached_drive_mode_ 立即更新
     const m = remotePrefDriveMode.value
     if (m === 2) {
       if (canSelectRemoteC.value) {
@@ -2375,6 +2537,13 @@ const applyRemotePreflight = async () => {
     } else {
       await sendPref('DRIVE_MODE', 'DRIVE_MODE', { mode: m })
     }
+    // ② 车辆功能预置（仅 drive_mode=2 时车端才会缓存生效，其余模式忽略）
+    await sendPref('EPB', 'EPB', { on: remotePrefEpb.value ? 1 : 0 })
+    await sendPref('HORN', 'HORN', { on: remotePrefHorn.value ? 1 : 0 })
+    await sendPref('LOW_BEAM', 'LOW_BEAM', { on: remotePrefLowBeam.value ? 1 : 0 })
+    await sendPref('HIGH_BEAM', 'HIGH_BEAM', { on: remotePrefHighBeam.value ? 1 : 0 })
+    await sendPref('AUX_LIGHT', 'AUX_LIGHT', { on: remotePrefAuxLight.value ? 1 : 0 })
+    await sendPref('HAZARD_LIGHT', 'HAZARD_LIGHT', { on: remotePrefHazard.value ? 1 : 0 })
   }
   for (let i = 0; i < 3; i++) {
     try {
@@ -2479,6 +2648,22 @@ const handleExitRemoteControl = async () => {
 }
 
 const handleBack = () => {
+  if (isRemoteFocusEntry.value) {
+    /** 远控工作台：优先关闭浏览器标签/窗口；非 window.open 打开的页多数浏览器会忽略 close，再退回列表 */
+    if (typeof window !== 'undefined') {
+      try {
+        window.close()
+      } catch {
+        /* noop */
+      }
+      window.setTimeout(() => {
+        void router.push({ path: '/parallel-driving/vehicles' })
+      }, 180)
+    } else {
+      void router.push({ path: '/parallel-driving/vehicles' })
+    }
+    return
+  }
   router.push({ name: 'vehicle-list' })
 }
 
@@ -2720,6 +2905,405 @@ onUnmounted(() => {
   padding: 0;
 }
 
+/* 远控工作台独立页：暗黑主题（仅根 class，不影响普通车辆详情） */
+.pd-vehicle-detail-root--remote-focus {
+  color-scheme: dark;
+  min-height: 100vh;
+  color: rgba(255, 255, 255, 0.82);
+  scrollbar-color: rgba(255, 255, 255, 0.22) rgba(255, 255, 255, 0.05);
+  background:
+    radial-gradient(1200px 640px at 8% -14%, rgba(64, 169, 255, 0.14), transparent 58%),
+    radial-gradient(980px 560px at 96% 0%, rgba(82, 196, 26, 0.07), transparent 52%),
+    radial-gradient(780px 440px at 50% 112%, rgba(91, 140, 255, 0.06), transparent 55%),
+    linear-gradient(165deg, #0b1018 0%, #070b12 38%, #05080e 100%);
+
+  :deep(.ant-pro-page-container),
+  :deep(.ant-pro-page-container-grid-content),
+  :deep(.ant-pro-page-container-children-content) {
+    background: transparent;
+  }
+
+  :deep(.ant-pro-page-container-children-content.children-full-height) {
+    padding: 0 10px 22px;
+  }
+
+  :deep(.ant-spin-nested-loading),
+  :deep(.ant-spin-container) {
+    background: transparent;
+  }
+
+  :deep(.ant-spin-dot-item) {
+    background-color: #5b8cff;
+  }
+
+  /* 主操作卡片：浮在背景上的深色块 */
+  :deep(.pd-rc-card--remote-focus.ant-card) {
+    margin-bottom: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 14px;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.07),
+      0 24px 56px rgba(0, 0, 0, 0.52);
+    overflow: hidden;
+  }
+
+  /*
+   * Windowed 远控条：与末尾「非 scoped fs-layout-dark」同语义 ——
+   * 标签/未选中 pill 与底对比不足时阅读累眼，此处单独拉高对比与描边。
+   */
+  .remote-control-form {
+    padding: 10px 14px;
+    margin-bottom: 12px !important;
+    row-gap: 10px;
+    column-gap: 14px;
+    background: rgba(16, 20, 30, 0.88);
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.06) inset,
+      0 6px 22px rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .rc-label {
+    color: rgba(255, 255, 255, 0.84);
+    font-weight: 550;
+  }
+
+  .rc-divider {
+    height: 22px;
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.16) 28%,
+      rgba(255, 255, 255, 0.16) 72%,
+      transparent 100%
+    );
+  }
+
+  .rc-aux-guide-prefix {
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .rc-preflight-name,
+  .rc-preflight-drive-title {
+    color: rgba(255, 255, 255, 0.76);
+  }
+
+  :deep(.rc-video-toggles) {
+    padding: 4px;
+    background: rgba(0, 0, 0, 0.38);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    gap: 3px;
+  }
+
+  :deep(.rc-checkbox-group.ant-checkbox-group) {
+    padding: 4px;
+    background: rgba(0, 0, 0, 0.38);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    gap: 3px;
+  }
+
+  :deep(.ant-checkbox-wrapper) {
+    color: rgba(255, 255, 255, 0.76) !important;
+    border-radius: 6px !important;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  :deep(.ant-checkbox-wrapper:hover) {
+    color: rgba(255, 255, 255, 0.96) !important;
+    background: rgba(255, 255, 255, 0.09) !important;
+  }
+
+  :deep(.ant-checkbox-wrapper-checked) {
+    background: rgba(91, 140, 255, 0.26) !important;
+    color: #fff !important;
+    box-shadow: inset 0 0 0 1px rgba(91, 140, 255, 0.45);
+  }
+
+  :deep(.ant-checkbox) {
+    display: none !important;
+  }
+
+  :deep(.rc-checkbox-hitch.ant-checkbox-wrapper),
+  :deep(.rc-checkbox-guide.ant-checkbox-wrapper) {
+    margin-inline-start: 0 !important;
+    padding: 0 11px !important;
+    min-height: 26px !important;
+    line-height: 24px !important;
+    border-radius: 6px !important;
+    color: rgba(255, 255, 255, 0.76) !important;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.11) !important;
+  }
+
+  :deep(.rc-checkbox-hitch.ant-checkbox-wrapper-checked),
+  :deep(.rc-checkbox-guide.ant-checkbox-wrapper-checked) {
+    background: rgba(91, 140, 255, 0.24) !important;
+    color: #fff !important;
+    border-color: rgba(91, 140, 255, 0.42) !important;
+    box-shadow: inset 0 0 0 1px rgba(91, 140, 255, 0.28);
+  }
+
+  :deep(.rc-preflight-drive-radio.ant-radio-group) {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 4px 8px;
+    gap: 4px 12px;
+    background: rgba(0, 0, 0, 0.36);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  :deep(.rc-preflight-drive-radio .ant-radio-wrapper) {
+    color: rgba(255, 255, 255, 0.78) !important;
+    white-space: nowrap;
+    margin-inline-end: 0 !important;
+    align-items: center;
+  }
+
+  :deep(.rc-preflight-drive-radio .ant-radio-wrapper:hover) {
+    color: rgba(255, 255, 255, 0.95) !important;
+  }
+
+  /* 未选中：压暗圆环，避免与选中态蓝点争奇斗艳 */
+  :deep(.rc-preflight-drive-radio .ant-radio .ant-radio-inner) {
+    border-color: rgba(255, 255, 255, 0.22);
+    background-color: rgba(255, 255, 255, 0.04);
+  }
+
+  :deep(.rc-preflight-drive-radio .ant-radio:hover .ant-radio-inner) {
+    border-color: rgba(255, 255, 255, 0.38);
+    background-color: rgba(255, 255, 255, 0.07);
+  }
+
+  :deep(.rc-preflight-drive-radio .ant-radio-checked .ant-radio-inner) {
+    border-color: #5e9eff;
+    background-color: #4a7ae8;
+    box-shadow: 0 0 0 1px rgba(94, 158, 255, 0.35);
+  }
+
+  :deep(.rc-preflight-drive-radio .ant-radio-checked .ant-radio-inner::after) {
+    background-color: #fff;
+  }
+
+  :deep(.rc-preflight-drive-radio .ant-radio-disabled .ant-radio-inner) {
+    border-color: rgba(255, 255, 255, 0.12) !important;
+    background-color: rgba(255, 255, 255, 0.03) !important;
+  }
+
+  :deep(.rc-preflight-drive-radio .ant-radio-disabled.ant-radio-checked .ant-radio-inner) {
+    border-color: rgba(94, 158, 255, 0.45) !important;
+    background-color: rgba(74, 122, 232, 0.35) !important;
+  }
+
+  :deep(.rc-preflight-drive-radio .ant-radio-wrapper-disabled) {
+    color: rgba(255, 255, 255, 0.7) !important;
+  }
+
+  /* Ant 全局：.ant-radio-disabled + span { color: rgba(0,0,0,.25) }，深色底上「R 远控」会看不见 */
+  :deep(.rc-preflight-drive-radio .ant-radio-disabled + span) {
+    color: rgba(255, 255, 255, 0.7) !important;
+    cursor: not-allowed;
+  }
+
+  :deep(.ant-switch) {
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  :deep(.ant-switch:hover:not(.ant-switch-disabled)) {
+    background: rgba(255, 255, 255, 0.22);
+  }
+
+  :deep(.ant-switch-checked) {
+    background: #5b8cff !important;
+  }
+
+  :deep(.ant-select-selector) {
+    background: rgba(255, 255, 255, 0.07) !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    color: rgba(255, 255, 255, 0.95) !important;
+  }
+
+  :deep(.ant-select:hover .ant-select-selector),
+  :deep(.ant-select-focused .ant-select-selector) {
+    border-color: rgba(91, 140, 255, 0.55) !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+  }
+
+  :deep(.ant-select-arrow) {
+    color: rgba(255, 255, 255, 0.55);
+  }
+}
+
+.pd-remote-focus-app-bar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  /* 与下方条带内「ZERON」左缘对齐：children-full-height 左右 10px + .remote-control-form 左右 14px */
+  padding: 6px 24px;
+  margin-bottom: 4px;
+  border-radius: 0 0 8px 8px;
+  background: rgba(15, 20, 28, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: none;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+  backdrop-filter: saturate(140%) blur(12px);
+
+  &__exit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.88);
+    background: rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+    transition: background-color 0.18s ease, color 0.18s ease;
+
+    &:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    &:focus-visible {
+      outline: 2px solid #69b1ff;
+      outline-offset: 2px;
+    }
+
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+
+  &__title-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    /* 整块随「车牌+标签」变宽，不把标签撑到远离车名；过长时整行上限为栏内剩余宽度 */
+    width: fit-content;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: rgba(255, 255, 255, 0.96);
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  &__tags {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+  }
+
+  &__center {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  /* Ant Tag 在低照度顶栏的可读微调 */
+  :deep(.ant-tag) {
+    margin-inline-end: 0;
+    border-color: transparent;
+    margin: 0;
+    padding: 0 6px;
+    font-size: 12px;
+    line-height: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pd-remote-focus-app-bar {
+    backdrop-filter: none;
+  }
+}
+
+.pd-vehicle-detail-root--remote-focus .remote-control-wrapper {
+  margin-bottom: 0;
+  margin-top: 2px;
+}
+
+.pd-rc-card--remote-focus :deep(.ant-card-body) {
+  padding-bottom: 12px;
+}
+
+.pd-remote-focus-shell {
+  /* 顶栏已压扁，多留给视频区 */
+  min-height: min(70vh, calc(100dvh - 84px));
+}
+
+/* 远控页：card-body 与整体暗壳统一（scoped 可提高优先级覆盖 .remote-control-card-fs） */
+.pd-vehicle-detail-root--remote-focus :deep(.remote-control-card-fs .ant-card-body) {
+  background: linear-gradient(180deg, #131820 0%, #0d1016 48%, #090c12 100%) !important;
+}
+
+.pd-vehicle-detail-root--remote-focus :deep(.fullscreen-target:not(:fullscreen) .video-section) {
+  border-top-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.pd-vehicle-detail-root--remote-focus .video-placeholder {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.pd-vehicle-detail-root--remote-focus .vehicle-offline-monitor-placeholder {
+  margin-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(19, 23, 31, 0.95) 0%, rgba(12, 14, 20, 0.98) 100%);
+  border-radius: 0 0 12px 12px;
+}
+
+.pd-vehicle-detail-root--remote-focus .offline-monitor-icon-wrap {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pd-vehicle-detail-root--remote-focus .offline-monitor-svg {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.pd-vehicle-detail-root--remote-focus .offline-monitor-title {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.pd-vehicle-detail-root--remote-focus .offline-monitor-hint {
+  color: rgba(255, 255, 255, 0.56);
+}
+
+/* windowed：为 sticky 顶栏与边距留出垂直空间（仅远控页） */
+.pd-vehicle-detail-root--remote-focus
+  .fullscreen-target:not(:fullscreen).card-body-fullscreen-wrapper:has(.video-section) {
+  height: calc(100dvh - 132px);
+  min-height: min(520px, calc(100dvh - 132px));
+}
+
 .remote-control-wrapper {
   margin-bottom: 16px;
 }
@@ -2805,6 +3389,23 @@ onUnmounted(() => {
   display: inline-flex;
   flex-wrap: wrap;
   row-gap: 2px;
+}
+.rc-actual-dm {
+  margin-left: 8px;
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  user-select: none;
+}
+.rc-pref-dm-cur {
+  margin-left: 4px;
+  margin-right: 6px;
+  min-width: 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1677ff;
+  white-space: nowrap;
+  user-select: none;
 }
 .rc-preflight-c-radio-wrap {
   display: inline-block;
@@ -4319,6 +4920,7 @@ onUnmounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* 单列模式：左眼/右眼不卸组件；内层不搞双边框（外栏 layout-e-left/right 已描边） */
 .layout-e-side-stack--solo {
   gap: 0;
   background: transparent;
@@ -4453,14 +5055,34 @@ onUnmounted(() => {
   color: rgba(255, 255, 255, 0.75);
   background: rgba(0, 0, 0, 0.6);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
-  /* 定位到 PiP 区域内的右下角：PiP top:6 left:6 w:20% AR:1.25 */
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* 角标仍在 layout-e-center 下、前后层之间时（如车辆详情页）：按 20% PiP 用 calc 定位 */
+.layout-e-center > .layout-e-pip-badge:not(.layout-e-pip-badge--anchored) {
   top: calc(6px + 20% / 1.25 - 20px);
   left: calc(6px + 20% - 28px);
-  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* 角标放在 PiP 视频层内（远控 VehicleRemoteDeck）：相对小窗盒子 right/bottom，改 PiP 宽或勾选前后仍对齐 */
+.layout-e-layer > .layout-e-pip-badge--anchored {
+  top: auto;
+  left: auto;
+  right: 6px;
+  bottom: 6px;
+  z-index: 6;
 }
 .layout-e-pip-badge.is-reverse {
   color: rgba(255, 77, 79, 0.95);
   text-shadow: 0 0 6px rgba(255, 77, 79, 0.4);
+}
+
+/* 远控工作台：D/N/P 与 R 切换时左上角 PiP 小窗等比放大约 1/3（20% × 4/3） */
+.pd-remote-focus-deck .layout-e-center:not(.is-reverse) .layout-e-layer-back {
+  width: calc(100% * 4 / 15);
+}
+.pd-remote-focus-deck .layout-e-center.is-reverse .layout-e-layer-front {
+  width: calc(100% * 4 / 15);
 }
 
 /* ── 前视距离引导：与 HUD 同级叠放，须高于 HUD(5) 才能看见；位置与 960×768 内接框由行内对齐 VideoCell ── */
@@ -4866,12 +5488,12 @@ onUnmounted(() => {
 @rc-danger:        #f5564a;
 @rc-danger-bg:     rgba(245, 86, 74, 0.12);
 @rc-text:          rgba(255, 255, 255, 0.92);
-@rc-text-dim:      rgba(255, 255, 255, 0.62);
-@rc-text-label:    rgba(255, 255, 255, 0.62);
-@rc-border:        rgba(255, 255, 255, 0.08);
-@rc-border-hover:  rgba(255, 255, 255, 0.18);
-@rc-surface:       rgba(255, 255, 255, 0.055);
-@rc-surface-hover: rgba(255, 255, 255, 0.09);
+@rc-text-dim:      rgba(255, 255, 255, 0.74);
+@rc-text-label:    rgba(255, 255, 255, 0.78);
+@rc-border:        rgba(255, 255, 255, 0.13);
+@rc-border-hover:  rgba(255, 255, 255, 0.22);
+@rc-surface:       rgba(255, 255, 255, 0.065);
+@rc-surface-hover: rgba(255, 255, 255, 0.1);
 
 .pd-vehicle-detail-fs.fs-layout-dark {
 
@@ -5005,7 +5627,7 @@ onUnmounted(() => {
   .rc-group-preflight { align-items: flex-start; }
   .rc-preflight-name,
   .rc-preflight-drive-title {
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(255, 255, 255, 0.78);
   }
 
   /* 与「布局」分段条同一视觉：单壳内 flex，内层 checkbox-group 不再套第二层框 */
@@ -5014,7 +5636,7 @@ onUnmounted(() => {
     flex-wrap: wrap;
     align-items: center;
     padding: 3px;
-    background: rgba(0, 0, 0, 0.32);
+    background: rgba(0, 0, 0, 0.38);
     border-radius: 8px;
     border: 1px solid @rc-border;
     gap: 2px;
@@ -5097,7 +5719,7 @@ onUnmounted(() => {
     display: inline-flex;
     align-items: center;
     padding: 3px;
-    background: rgba(0, 0, 0, 0.32);
+    background: rgba(0, 0, 0, 0.38);
     border-radius: 8px;
     border: 1px solid @rc-border;
     gap: 2px;
@@ -5141,7 +5763,7 @@ onUnmounted(() => {
     display: inline-flex;
     align-items: center;
     padding: 3px;
-    background: rgba(0, 0, 0, 0.32);
+    background: rgba(0, 0, 0, 0.38);
     border-radius: 8px;
     border: 1px solid @rc-border;
     gap: 2px;
@@ -5173,6 +5795,68 @@ onUnmounted(() => {
   }
 
   .ant-radio-button-inner { display: none !important; }
+
+  /* ── 驾驶模式（远控预置 M/A/R）：圆点 Radio，与 windowed remote-focus scoped 块同语义 ── */
+  .rc-preflight-drive-radio.ant-radio-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 4px 8px;
+    gap: 4px 12px;
+    background: rgba(0, 0, 0, 0.38);
+    border-radius: 8px;
+    border: 1px solid @rc-border;
+  }
+
+  .rc-preflight-drive-radio .ant-radio-wrapper {
+    color: @rc-text-dim !important;
+    white-space: nowrap;
+    margin-inline-end: 0 !important;
+    align-items: center;
+  }
+
+  .rc-preflight-drive-radio .ant-radio-wrapper:hover {
+    color: @rc-text !important;
+  }
+
+  .rc-preflight-drive-radio .ant-radio .ant-radio-inner {
+    border-color: rgba(255, 255, 255, 0.22);
+    background-color: rgba(255, 255, 255, 0.04);
+  }
+
+  .rc-preflight-drive-radio .ant-radio:hover .ant-radio-inner {
+    border-color: rgba(255, 255, 255, 0.38);
+    background-color: rgba(255, 255, 255, 0.07);
+  }
+
+  .rc-preflight-drive-radio .ant-radio-checked .ant-radio-inner {
+    border-color: #5e9eff;
+    background-color: #4a7ae8;
+    box-shadow: 0 0 0 1px rgba(94, 158, 255, 0.35);
+  }
+
+  .rc-preflight-drive-radio .ant-radio-checked .ant-radio-inner::after {
+    background-color: #fff;
+  }
+
+  .rc-preflight-drive-radio .ant-radio-disabled .ant-radio-inner {
+    border-color: rgba(255, 255, 255, 0.12) !important;
+    background-color: rgba(255, 255, 255, 0.03) !important;
+  }
+
+  .rc-preflight-drive-radio .ant-radio-disabled.ant-radio-checked .ant-radio-inner {
+    border-color: rgba(94, 158, 255, 0.45) !important;
+    background-color: rgba(74, 122, 232, 0.35) !important;
+  }
+
+  .rc-preflight-drive-radio .ant-radio-wrapper-disabled {
+    color: rgba(255, 255, 255, 0.7) !important;
+  }
+
+  .rc-preflight-drive-radio .ant-radio-disabled + span {
+    color: rgba(255, 255, 255, 0.7) !important;
+    cursor: not-allowed;
+  }
 
   /* ── 按钮 ── */
   .rc-btn {
@@ -5255,6 +5939,25 @@ onUnmounted(() => {
   .ant-select-item-option-active  { background: @rc-surface-hover !important; }
   .ant-select-item-option-selected { background: fade(@rc-accent, 16%) !important; font-weight: 500; }
   .ant-empty-description { color: @rc-text-dim; }
+}
+
+/* 独立远控路由 windowed：甲板外沿高光；与「普通详情页点全屏」区分开（无 .pd-remote-focus-deck） */
+.pd-vehicle-detail-fs.fs-layout-dark.pd-remote-focus-deck:not(:fullscreen) {
+  border-radius: 12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+/* 远控工作台：远控预置（手刹/喇叭/灯光）与驾驶模式（M/A/C）同一行，极窄时自动换行 */
+.pd-remote-focus-deck .rc-preflight-inner {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.pd-remote-focus-deck .rc-group.rc-group-preflight {
+  align-items: center;
 }
 
 </style>

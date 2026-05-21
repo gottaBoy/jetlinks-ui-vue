@@ -24,7 +24,13 @@ const getExtraRoutesMap = () => {
                     url: '/detail/:id',
                     name: '车辆详情',
                     component: () => import('./views/vehicle-list/detail/index.vue')
-                }
+                },
+                {
+                    code: 'remote-focus',
+                    url: '/remote-focus/:id',
+                    name: '远控工作台',
+                    component: () => import('./views/vehicle-list/remote-focus/index.vue'),
+                },
             ]
         }
     }

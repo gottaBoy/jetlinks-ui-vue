@@ -30,6 +30,7 @@
         "url": "/parallel-driving/control",
         "path": "/parallel-driving/control",
         "sortIndex": 2,
+        "isShow": false,
         "showPage": [
           "control-center"
         ],

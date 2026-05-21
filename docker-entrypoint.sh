@@ -5,7 +5,7 @@ NAMESERVERS=$(grep "^nameserver" /etc/resolv.conf | awk '{print $2}' | tr '\n' '
 
 # Set default API_BASE_PATH if not provided
 if [ -z "$API_BASE_PATH" ]; then
-    API_BASE_PATH="http://jetlinks:8848/"
+    API_BASE_PATH="http://10.7.30.44:8848/"
 fi
 
 # Update resolver line in nginx config
@@ -27,6 +27,8 @@ else
     sed -i "s%{SERVER_NAME}%$SERVER_NAME%g" /etc/nginx/conf.d/default.conf
 fi
 
-# Start nginx in foreground
+# Start nginx in foreground (container :80; default host mapping 9100:80)
+echo "[docker-entrypoint] API_BASE_PATH=$API_BASE_PATH"
+echo "[docker-entrypoint] listening on :80 — map with -p 9100:80 for http://localhost:9100"
 nginx -g "daemon off;"
 

@@ -116,6 +116,14 @@
                 <a-row :gutter="16" style="margin-top: 12px">
                   <a-col :span="12">
                     <div class="card-item-content-text">
+                      {{ $t('parallel-driving.vehicle-list.internal-code') }}
+                    </div>
+                    <j-ellipsis style="width: calc(100% - 20px)">
+                      <div>{{ slotProps.internalCode || '—' }}</div>
+                    </j-ellipsis>
+                  </a-col>
+                  <a-col :span="12">
+                    <div class="card-item-content-text">
                       {{ $t('parallel-driving.vehicle-list.session-state') }}
                     </div>
                     <j-ellipsis style="width: calc(100% - 20px)">
@@ -128,7 +136,9 @@
                       </div>
                     </j-ellipsis>
                   </a-col>
-                  <a-col :span="12" v-if="slotProps.boundCockpitId">
+                </a-row>
+                <a-row :gutter="16" style="margin-top: 12px" v-if="slotProps.boundCockpitId">
+                  <a-col :span="24">
                     <div class="card-item-content-text">
                       {{ $t('parallel-driving.vehicle-list.bound-cockpit') }}
                     </div>
@@ -191,13 +201,19 @@
         </template>
         <template #action="slotProps">
           <a-space>
-            <a-button type="link" @click="goToDetail(slotProps)">
+            <a-button type="link" class="pd-action-link" @click="goToDetail(slotProps)">
               <template #icon>
                 <AIcon type="EyeOutlined" />
               </template>
               {{ $t('parallel-driving.vehicle-list.view-detail') }}
             </a-button>
-            <a-button type="link" @click="goToJobConfig(slotProps)">
+            <a-button type="link" class="pd-action-link" @click="goToRemoteFocus(slotProps)">
+              <template #icon>
+                <AIcon type="ControlOutlined" />
+              </template>
+              {{ $t('parallel-driving.vehicle-list.remote-focus') }}
+            </a-button>
+            <a-button type="link" class="pd-action-link" @click="goToJobConfig(slotProps)">
               <template #icon>
                 <AIcon type="SettingOutlined" />
               </template>
@@ -241,6 +257,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { cloneDeep } from 'lodash-es'
 import { onlyMessage } from '@/utils/comm'
 import {
   getCockpitDevices,
@@ -285,12 +302,19 @@ const loadCockpitDevices = async (keyword?: string) => {
         : [],
     })
     const data = result?.result || []
-    cockpitDevices.value = data.map((item: any) => {
+    const mapped = data.map((item: any) => {
       const name = (item.name || '').trim()
       const id = (item.id || '').trim()
       const label = name ? `${name}(${id})` : id
       return { label, value: id, name: name || id }
     })
+    // 搜索会替换 options，若当前选中项不在新结果中，a-select 会清空 v-model，导致列表筛选失效
+    const id = (selectedCockpitId.value || '').trim()
+    if (id && !mapped.some((d: { value: string }) => d.value === id)) {
+      cockpitDevices.value = [{ label: id, value: id, name: id }, ...mapped]
+    } else {
+      cockpitDevices.value = mapped
+    }
   } catch (e) {
     console.error('加载驾驶舱设备失败:', e)
   } finally {
@@ -324,6 +348,18 @@ const goToDetail = (record: any) => {
   router.push({ path: `/parallel-driving/vehicles/detail/${id}` })
 }
 
+/** 远控工作台：新标签打开；顶栏关闭会 window.close()（同 goToJobConfig） */
+const goToRemoteFocus = (record: any) => {
+  const raw = record?.record || record
+  const id = raw?.deviceId || raw?.id
+  if (!id) return
+  const url = router.resolve({
+    path: `/parallel-driving/vehicles/remote-focus/${id}`,
+    query: { layout: 'false' },
+  })
+  window.open(url.href, '_blank')
+}
+
 // 跳转作业配置（新窗口打开）
 const goToJobConfig = (record: any) => {
   const raw = record?.record || record
@@ -355,6 +391,16 @@ const columns = [
     },
   },
   {
+    title: $t('parallel-driving.vehicle-list.internal-code'),
+    dataIndex: 'internalCode',
+    key: 'internalCode',
+    width: 160,
+    ellipsis: true,
+    search: {
+      type: 'string',
+    },
+  },
+  {
     title: $t('parallel-driving.vehicle-list.online-status'),
     dataIndex: 'state',
     key: 'state',
@@ -377,35 +423,25 @@ const columns = [
   {
     title: $t('parallel-driving.vehicle-list.action'),
     key: 'action',
-    width: 260,
+    width: 340,
     fixed: 'right',
     scopedSlots: true,
   },
 ]
 
-// 查询车辆列表
+// 查询车辆列表（后端按 cockpitId 过滤「绑定到该驾驶舱」的车辆；见 ParallelDrivingVehicleService）
 const queryVehicles = async (queryParams: any) => {
-  // 如果选择了驾驶舱，添加 cockpitId 过滤条件
+  const qp = cloneDeep(queryParams)
+  const terms = Array.isArray(qp.terms) ? qp.terms : []
+  qp.terms = terms.filter((t: any) => t?.column !== 'cockpitId')
   if (selectedCockpitId.value) {
-    if (!queryParams.terms) {
-      queryParams.terms = []
-    }
-    // 检查是否已存在 cockpitId 条件
-    const existingIndex = queryParams.terms.findIndex(
-      (term: any) => term.column === 'cockpitId'
-    )
-    if (existingIndex >= 0) {
-      queryParams.terms[existingIndex].value = selectedCockpitId.value
-    } else {
-      queryParams.terms.push({
-        column: 'cockpitId',
-        termType: 'eq',
-        value: selectedCockpitId.value,
-      })
-    }
+    qp.terms.push({
+      column: 'cockpitId',
+      termType: 'eq',
+      value: selectedCockpitId.value,
+    })
   }
-  
-  const result = await queryVehiclesApi(queryParams)
+  const result = await queryVehiclesApi(qp)
   if (result.success && result.result?.data) {
     // 为每条记录添加 loading 状态
     result.result.data = result.result.data.map((item: any) => ({
@@ -591,5 +627,18 @@ onMounted(() => {
 
 .card-title-link:hover {
   color: #1890ff;
+}
+
+/* 表格操作列链接：明确可点 + 轻量过渡（ui-ux-pro-max 交互清单） */
+.pd-action-link.ant-btn-link {
+  cursor: pointer;
+  padding-inline: 4px;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pd-action-link.ant-btn-link {
+    transition: none;
+  }
 }
 </style>

@@ -55,9 +55,11 @@ export const initParallelDrivingWebSocket = (
   const url = `${protocol}//${host}${BASE_API}/parallel-driving/ws?${params.toString()}`
 
   try {
-    ws = new WebSocket(url)
+    const socket = new WebSocket(url)
+    ws = socket
 
-    ws.onopen = () => {
+    socket.onopen = () => {
+      if (ws !== socket) return
       console.log('平行驾驶 WebSocket 连接成功')
       reconnectCount = 0
       if (reconnectTimer) {
@@ -67,7 +69,8 @@ export const initParallelDrivingWebSocket = (
       onOpen?.()
     }
 
-    ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
+      if (ws !== socket) return
       try {
         const data = JSON.parse(event.data)
         onMessage?.(data)
@@ -76,12 +79,15 @@ export const initParallelDrivingWebSocket = (
       }
     }
 
-    ws.onerror = (error) => {
+    socket.onerror = (error) => {
+      if (ws !== socket) return
       console.error('平行驾驶 WebSocket 错误:', error)
       onError?.(error)
     }
 
-    ws.onclose = () => {
+    // 必须用 socket 引用判断：旧连接异步 onclose 不能清空已替换的新 ws，否则会误触发重连、控制台刷屏
+    socket.onclose = () => {
+      if (ws !== socket) return
       ws = null
       onClose?.()
       if (!intentionallyClosed) {
@@ -89,7 +95,7 @@ export const initParallelDrivingWebSocket = (
       }
     }
 
-    return ws
+    return socket
   } catch (error) {
     console.error('创建 WebSocket 连接失败:', error)
     if (!intentionallyClosed) {
@@ -139,4 +145,12 @@ export const closeParallelDrivingWebSocket = () => {
 
 export const isWebSocketConnected = (): boolean => {
   return ws !== null && ws.readyState === WebSocket.OPEN
+}
+
+/** 已建立或正在握手，避免重复 init 把正在连的 socket 关掉 */
+export const isParallelDrivingWebSocketActive = (): boolean => {
+  return (
+    ws !== null &&
+    (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)
+  )
 }

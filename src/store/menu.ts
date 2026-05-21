@@ -191,7 +191,7 @@ export const useMenuStore = defineStore('menu', () => {
             handleMenusMap(routes, handleMenusMapById)
 
             const siderData = cloneDeep(menuResult)
-            const HIDDEN_MENU_CODES = ['job-config']
+            const HIDDEN_MENU_CODES = ['job-config', 'control-center']
             const markHidden = (items: any[]) => {
                 items.forEach(item => {
                     if (HIDDEN_MENU_CODES.includes(item.code)) item.isShow = false
