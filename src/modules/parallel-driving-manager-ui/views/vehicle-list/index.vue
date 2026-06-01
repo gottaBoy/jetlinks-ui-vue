@@ -213,6 +213,12 @@
               </template>
               {{ $t('parallel-driving.vehicle-list.remote-focus') }}
             </a-button>
+            <a-button type="link" class="pd-action-link" @click="goToUltrawide(slotProps)" title="32:9 曲面屏三栏沉浸式工作台">
+              <template #icon>
+                <AIcon type="DesktopOutlined" />
+              </template>
+              曲面屏
+            </a-button>
             <a-button type="link" class="pd-action-link" @click="goToJobConfig(slotProps)">
               <template #icon>
                 <AIcon type="SettingOutlined" />
@@ -360,12 +366,24 @@ const goToRemoteFocus = (record: any) => {
   window.open(url.href, '_blank')
 }
 
+/** 曲面屏沉浸台：新标签打开，三栏全屏，专为 32:9 曲面屏设计 */
+const goToUltrawide = (record: any) => {
+  const raw = record?.record || record
+  const id = raw?.deviceId || raw?.id
+  if (!id) return
+  const url = router.resolve({
+    path: `/parallel-driving/vehicles/ultrawide/${id}`,
+    query: { layout: 'false' },
+  })
+  window.open(url.href, '_blank')
+}
+
 // 跳转作业配置（新窗口打开）
 const goToJobConfig = (record: any) => {
   const raw = record?.record || record
   const id = raw?.deviceId || raw?.id
   if (!id) return
-  const url = router.resolve({ path: '/parallel-driving/job-config', query: { vehicleId: id, layout: 'false' } })
+  const url = router.resolve({ path: '/parallel-driving/vehicles/job-config', query: { vehicleId: id, layout: 'false' } })
   window.open(url.href, '_blank')
 }
 

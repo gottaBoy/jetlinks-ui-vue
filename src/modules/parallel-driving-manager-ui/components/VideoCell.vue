@@ -20,6 +20,8 @@
         :show-cloud-link-rtt="showCloudRttPill"
         :cloud-link-network-rtt-ms="cloudLinkNetworkRttMs"
         :fast-video-recovery="fastVideoRecovery"
+        :mirror="mirrorEffective"
+        :flip-vertical="flipVertical"
       />
       <Player
         v-else-if="url"
@@ -89,6 +91,13 @@ const props = withDefaults(
      * WebRTC 远控快恢复：`WebRtcPlayer` 更短统计周期与 ICE / 收流阈值（默认开）
      */
     fastVideoRecovery?: boolean
+    /**
+     * 水平镜像（后视镜效果）。不传时仅左后/右后挂车辅路默认镜像，其余摄像头不镜像。
+     * 显式传 true/false 可强制开关。
+     */
+    mirror?: boolean
+    /** 垂直翻转。与 mirror 同开即 180° 旋转（挂后摄像头的司机最佳视角）。 */
+    flipVertical?: boolean
   }>(),
   {
     showDistanceGuide: true,
@@ -151,6 +160,14 @@ const showCloudRttPill = computed(
     props.protocol === 'webrtc' &&
     !!props.stream
 )
+
+/**
+ * 镜像生效值：显式 prop 优先；否则仅左后/右后挂车辅路默认镜像（后视镜效果），其余摄像头不镜像。
+ */
+const mirrorEffective = computed(() => {
+  if (props.mirror !== undefined) return props.mirror
+  return isRearHitchStream.value
+})
 
 /** 左右鱼眼、挂后辅路：960×768 内接（contain，不裁剪）。前视引导由 FrontCameraDistanceGuide 单独处理。 */
 const calibSpec = computed(() => {

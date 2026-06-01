@@ -31,6 +31,18 @@ const getExtraRoutesMap = () => {
                     name: '远控工作台',
                     component: () => import('./views/vehicle-list/remote-focus/index.vue'),
                 },
+                {
+                    code: 'ultrawide',
+                    url: '/ultrawide/:id',
+                    name: '曲面屏沉浸台',
+                    component: () => import('./views/vehicle-list/ultrawide/index.vue'),
+                },
+                {
+                    code: 'job-config',
+                    url: '/job-config',
+                    name: '任务运营',
+                    component: () => import('./views/vehicle-list/job-config/JobConfigPage.vue'),
+                },
             ]
         }
     }

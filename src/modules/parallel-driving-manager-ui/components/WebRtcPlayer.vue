@@ -9,7 +9,7 @@
       :controls="!props.liveOnly"
       class="webrtc-video"
       :class="{ 'live-only': props.liveOnly }"
-      style="width: 100%; height: 100%; object-fit: contain"
+      :style="{ width: '100%', height: '100%', objectFit: 'contain', transform: videoFlipTransform }"
     />
     <div v-if="!loading && !error" class="webrtc-top-bar" :style="webrtcTopBarStyle">
       <div
@@ -55,8 +55,21 @@
         <div class="ws-row"><span class="ws-label">Loss</span><span class="ws-value" :class="statsDisplay.lossClass">{{ statsDisplay.loss }}</span></div>
         <div class="ws-row"><span class="ws-label">Res</span><span class="ws-value">{{ statsDisplay.resolution }}</span></div>
         <div class="ws-row"><span class="ws-label">Codec</span><span class="ws-value">{{ statsDisplay.codec }}</span></div>
+        <div class="ws-row"><span class="ws-label">Decoder</span><span class="ws-value" :class="videoToolboxWarning ? 'ws-warn' : ''">{{ statsDisplay.decoder }}</span></div>
+        <div class="ws-row"><span class="ws-label">PLI/min</span><span class="ws-value" :class="statsDisplay.pliClass">{{ statsDisplay.pli }}</span></div>
+        <div class="ws-row"><span class="ws-label">冻结</span><span class="ws-value" :class="statsDisplay.freezeClass">{{ statsDisplay.freeze }}</span></div>
+        <div class="ws-row"><span class="ws-label">NACK</span><span class="ws-value">{{ statsDisplay.nack }}</span></div>
         <div class="ws-row"><span class="ws-label">链路</span><span class="ws-value">{{ pipelineHealthLines.link }}</span></div>
         <div class="ws-row"><span class="ws-label">诊断</span><span class="ws-value">{{ pipelineHealthLines.hint }}</span></div>
+      </div>
+    </Transition>
+
+    <!-- VideoToolbox 已知 bug 提示：丢包时 reference frame 丢失可冻结 5~30s -->
+    <Transition name="stats-fade">
+      <div v-if="videoToolboxWarning && !loading && !error" class="webrtc-vtb-warn">
+        ⚠ 硬解(VideoToolbox)已触发冻结，请在
+        <code>chrome://flags/#disable-accelerated-video-decode</code>
+        禁用后完全重启 Chrome
       </div>
     </Transition>
 
@@ -103,9 +116,28 @@ const props = withDefaults(
      * 远控：更快 getStats、更短 ICE 宽限、收流停约 800ms 内触发软重拉（易多误重连，普通点播可关）
      */
     fastVideoRecovery?: boolean
+    /**
+     * Horizontally mirror the rendered video (rear-view-mirror effect for side/rear cameras).
+     * CSS-only transform on the <video> element: zero CPU/latency/bandwidth, decode-side only.
+     * Overlays (stats panel, badge) are NOT mirrored since they live outside the <video>.
+     */
+    mirror?: boolean
+    /**
+     * Vertically flip the rendered video. Combined with `mirror` (scaleX(-1)) this yields a
+     * 180° rotation — the natural orientation for rear hitch cameras (driver's-eye view).
+     */
+    flipVertical?: boolean
   }>(),
-  { liveOnly: true, showCloudLinkRtt: false, fastVideoRecovery: false }
+  { liveOnly: true, showCloudLinkRtt: false, fastVideoRecovery: false, mirror: false, flipVertical: false }
 )
+
+/** Compose horizontal (mirror) and vertical flips into a single CSS transform; undefined when neither. */
+const videoFlipTransform = computed(() => {
+  const parts: string[] = []
+  if (props.mirror) parts.push('scaleX(-1)')
+  if (props.flipVertical) parts.push('scaleY(-1)')
+  return parts.length ? parts.join(' ') : undefined
+})
 
 const cloudLinkRttText = computed(() => {
   const v = props.cloudLinkNetworkRttMs
@@ -214,24 +246,36 @@ const recoveryConfig = computed(() => {
   if (props.fastVideoRecovery) {
     return {
       statsIntervalMs: 250,
-      disconnectGraceMs: 1600,
+      // 4G cell handoff / brief signal drop can last 2-4 s; 1600 ms caused constant reconnects.
+      // 5000 ms still reconnects faster than the non-fast path (8000 ms).
+      disconnectGraceMs: 5000,
       reconnectDelayMs: 180,
-      /** 连续多少拍几乎无收流 → 标「收流卡」 */
-      inboundZeroTicksFlag: 4,
-      /** 连续多少拍 RTP 字节几乎不增长 → 软重拉（与 statsIntervalMs 相乘为过短易在刚出画面后误触发） */
-      inboundStallReconnectTicks: 8,
-      renderStallMs: 1100,
-      disconnectGraceHintMs: 1600,
+      // 12 ticks × 250 ms = 3 s before showing "收流卡" UI.
+      // ZLM's TWCC GCC probe phase can pause sending for 500 ms–2 s; 1.5 s (old value 6) was
+      // triggering false "收流卡" alerts on every GCC probe cycle.
+      inboundZeroTicksFlag: 12,
+      // 40 ticks × 250 ms = 10 s: 4G jitter spikes are typically <5 s; 10 s catches genuine stalls
+      // without triggering on every jitter. (Old value: 8 ticks = 2 s caused constant reconnects.)
+      inboundStallReconnectTicks: 40,
+      // 5 s: with 4% packet loss, PLI recovery can cascade across 2-3 IDR attempts (~3-4 s total).
+      // 3 s was triggering reconnects during normal PLI recovery, causing unnecessary reloads.
+      // 5 s ensures only a genuinely stuck decoder (not packet-loss recovery) triggers a reconnect.
+      renderStallMs: 5000,
+      disconnectGraceHintMs: 3000,
     }
   }
   return {
     statsIntervalMs: 1000,
-    disconnectGraceMs: 3000,
+    // 4G 链路偶发抖动可持续 3-6s，将宽限期提高到 8s，避免因瞬时断连触发无效重拉
+    disconnectGraceMs: 8000,
     reconnectDelayMs: 500,
-    inboundZeroTicksFlag: 2,
-    inboundStallReconnectTicks: 6,
-    renderStallMs: 2000,
-    disconnectGraceHintMs: 3000,
+    // 弱网 + VTB freeze 期间 bytesReceived 增量会大幅抖动，过紧会误判"收流卡"。
+    // inboundZeroTicksFlag：5s 不涨才提示「收流卡」（仅 UI 提示，不触发重连）
+    // inboundStallReconnectTicks：设足够大，实际不再因 inbound_stall 自动重连
+    inboundZeroTicksFlag: 5,
+    inboundStallReconnectTicks: 999,
+    renderStallMs: 10000,
+    disconnectGraceHintMs: 5000,
   }
 })
 
@@ -322,13 +366,89 @@ interface RtcStats {
   frameWidth: number | null
   frameHeight: number | null
   codec: string
+  /** e.g. "FFmpeg" | "VideoToolboxVideoDecoder" | "" */
+  decoderImpl: string
+  freezeCount: number
+  /** cumulative PLI sent */
+  pliCount: number
+  /** cumulative NACK sent */
+  nackCount: number
+  /** cumulative total freeze duration (seconds) */
+  totalFreezesDuration: number
 }
 
 const rtcStats = ref<RtcStats>({
   fps: null, rttMs: null, jitterMs: null, bitrateKbps: null,
   packetsLost: 0, packetsReceived: 0,
   frameWidth: null, frameHeight: null, codec: '',
+  decoderImpl: '', freezeCount: 0,
+  pliCount: 0, nackCount: 0, totalFreezesDuration: 0,
 })
+
+/** 上一个采样周期的累计值，用于计算增量速率（不触发响应式更新） */
+let _prevPliCount = 0
+let _prevNackCount = 0
+let _prevFreezeCount = 0
+/** 滚动窗口：记录最近 60s 内每个 tick 的 PLI 增量，用于计算"每分钟 PLI 次数" */
+const _pliRateWindow: number[] = []
+const _PLI_WINDOW_TICKS = 60   // 1s interval × 60 = 1 min window
+/** 实时指标：每个 statsInterval 更新一次，供 UI 展示和周期日志使用 */
+const statsRates = ref({ pliPerMin: 0, nackPerMin: 0, freezePerMin: 0 })
+
+/** 周期摘要日志：每 30s 打印一次，方便日志系统采集，不影响渲染性能 */
+let _summaryLogTimer: ReturnType<typeof setInterval> | null = null
+const _startSummaryLog = (streamId: string) => {
+  if (_summaryLogTimer) return
+  _summaryLogTimer = setInterval(() => {
+    const s = rtcStats.value
+    const lossRate = s.packetsReceived > 0
+      ? ((s.packetsLost / (s.packetsReceived + s.packetsLost)) * 100).toFixed(1)
+      : '—'
+    console.info('[WebRTC]', JSON.stringify({
+      stream: streamId,
+      ts: new Date().toISOString(),
+      fps: s.fps,
+      bitrate_kbps: s.bitrateKbps?.toFixed(0),
+      loss_pct: lossRate,
+      rtt_ms: s.rttMs?.toFixed(0),
+      jitter_ms: s.jitterMs?.toFixed(1),
+      freeze_count: s.freezeCount,
+      freeze_total_s: s.totalFreezesDuration.toFixed(1),
+      pli_count: s.pliCount,
+      nack_count: s.nackCount,
+      pli_per_min: statsRates.value.pliPerMin,
+      decoder: s.decoderImpl,
+    }))
+  }, 30_000)
+}
+const _stopSummaryLog = () => {
+  if (_summaryLogTimer) { clearInterval(_summaryLogTimer); _summaryLogTimer = null }
+}
+
+/**
+ * VideoToolbox 在丢包恢复场景有已知 bug：reference frame 丢失后冻结 5~30s。
+ * 策略：检测到 VTB 且已出现冻结（freezeCount > 0）时，触发一次重连并把 VP8 放 SDP 首位：
+ *   - ZLM 支持 VP8：浏览器选用 FFmpeg 软解，VideoToolbox bug 消失
+ *   - ZLM 不支持 VP8：协商自动回退 H.264，无副作用
+ * 注意：重连触发后 softStop 不会重置标志，避免"VTB→重连→VTB→重连"无限循环。
+ * stop()（用户主动关闭）会重置标志，确保下次打开时可以重新尝试。
+ */
+const videoToolboxDetected = computed(() =>
+  rtcStats.value.decoderImpl.toLowerCase().includes('videotoolbox')
+)
+/** 展示给操作员的警告（未能切换到 VP8，仍是 VideoToolbox）且已出现冻结 */
+const videoToolboxWarning = computed(() =>
+  videoToolboxDetected.value && rtcStats.value.freezeCount > 0
+)
+/** 上次重连时是否已经尝试过 VP8 优先 */
+let triedVp8Preference = false
+/** 是否已经主动触发过 VideoToolbox → VP8 的重连（每次新会话只触发一次）*/
+let vtbVp8SwitchScheduled = false
+/** render_stall 上次触发重连的时间戳，防止冻结-重连-冻结死循环 */
+let lastRenderStallReconnectAt = 0
+// 20 s cooldown: long enough to break fast loops (old bug was resetting this on every softStop),
+// short enough that genuine decoder freezes don't leave the operator blind for >30 s.
+const RENDER_STALL_RECONNECT_COOLDOWN_MS = 20_000
 
 const statsDisplay = computed(() => {
   const s = rtcStats.value
@@ -347,6 +467,17 @@ const statsDisplay = computed(() => {
       : `${s.bitrateKbps.toFixed(0)} kbps`
   }
 
+  // Shorten decoderImplementation for display: "VideoToolboxVideoDecoder" → "VideoToolbox⚠"
+  let decoderStr = s.decoderImpl || '—'
+  if (decoderStr.toLowerCase().includes('videotoolbox')) decoderStr = 'VideoToolbox⚠'
+  else if (decoderStr.toLowerCase().includes('ffmpeg')) decoderStr = 'FFmpeg'
+  else if (decoderStr.length > 16) decoderStr = decoderStr.slice(0, 16) + '…'
+
+  const pliPerMin = statsRates.value.pliPerMin
+  const pliStr = pliPerMin > 0 ? `${pliPerMin}/min` : '0'
+  const freezeSec = s.totalFreezesDuration > 0 ? `${s.totalFreezesDuration.toFixed(1)}s` : '0s'
+  const freezeStr = `${s.freezeCount}次 / ${freezeSec}`
+
   return {
     fps: s.fps != null ? `${Math.round(s.fps)}` : '—',
     rtt: fmt(s.rttMs, 'ms', 0),
@@ -356,6 +487,12 @@ const statsDisplay = computed(() => {
     lossClass: lossRate > 5 ? 'ws-warn' : lossRate > 1 ? 'ws-caution' : '',
     resolution: s.frameWidth && s.frameHeight ? `${s.frameWidth}×${s.frameHeight}` : '—',
     codec: s.codec || '—',
+    decoder: decoderStr,
+    pli: pliStr,
+    pliClass: pliPerMin > 10 ? 'ws-warn' : pliPerMin > 3 ? 'ws-caution' : '',
+    freeze: freezeStr,
+    freezeClass: s.freezeCount > 0 ? (s.totalFreezesDuration > 5 ? 'ws-warn' : 'ws-caution') : '',
+    nack: s.nackCount > 0 ? `${s.nackCount}` : '0',
   }
 })
 
@@ -395,7 +532,7 @@ const pipelineHealthLines = computed(() => {
     return {
       link,
       hint:
-        '收流停滞候选：链路仍 connected·inbound-rtp字节不增长；多为上游抖动/服务端无帧；达阈值将自动软重拉',
+        '收流停滞：inbound-rtp字节未增长（仅提示，不触发重连）· 多为上游 4G 抖动或服务端短暂无帧，通常自愈',
     }
   }
   return {
@@ -496,12 +633,18 @@ const stopStatsMonitor = () => {
     statsTimer = null
   }
   resetInboundStreakState()
+  _stopSummaryLog()
+  // 重置速率状态，避免重连后显示上一会话的残留数据
+  _prevPliCount = 0; _prevNackCount = 0; _prevFreezeCount = 0
+  _pliRateWindow.length = 0
+  statsRates.value = { pliPerMin: 0, nackPerMin: 0, freezePerMin: 0 }
 }
 
 const startStatsMonitor = () => {
   if (!pc || statsTimer) return
   lastBytes = 0
   lastTime = Date.now()
+  _startSummaryLog(props.stream ?? props.app ?? 'unknown')
 
   statsTimer = setInterval(async () => {
     const conn = pc
@@ -521,11 +664,16 @@ const startStatsMonitor = () => {
           if (report.frameWidth) patch.frameWidth = report.frameWidth
           if (report.frameHeight) patch.frameHeight = report.frameHeight
           if (report.codecId) {
-            const codecReport: any = allStats.get(report.codecId)
+            const codecReport: any = (allStats as any).get?.(report.codecId)
             if (codecReport?.mimeType) {
               patch.codec = codecReport.mimeType.replace('video/', '')
             }
           }
+          if (report.decoderImplementation != null) patch.decoderImpl = String(report.decoderImplementation)
+          if (report.freezeCount != null) patch.freezeCount = report.freezeCount
+          if (report.pliCount != null) patch.pliCount = report.pliCount
+          if (report.nackCount != null) patch.nackCount = report.nackCount
+          if (report.totalFreezesDuration != null) patch.totalFreezesDuration = report.totalFreezesDuration
         }
         if (report.type === 'candidate-pair' && report.state === 'succeeded') {
           if (report.currentRoundTripTime != null) {
@@ -546,6 +694,29 @@ const startStatsMonitor = () => {
       lastTime = now
 
       rtcStats.value = { ...rtcStats.value, ...patch }
+
+      // 增量速率计算（利用现有 patch 数据，不额外读取 stats）
+      {
+        const curPli = rtcStats.value.pliCount
+        const curNack = rtcStats.value.nackCount
+        const curFreeze = rtcStats.value.freezeCount
+        const pliDelta = Math.max(0, curPli - _prevPliCount)
+        const nackDelta = Math.max(0, curNack - _prevNackCount)
+        const freezeDelta = Math.max(0, curFreeze - _prevFreezeCount)
+        _prevPliCount = curPli
+        _prevNackCount = curNack
+        _prevFreezeCount = curFreeze
+        // 滚动窗口（最近 60 个 tick ≈ 1min @ 1s interval）
+        _pliRateWindow.push(pliDelta)
+        if (_pliRateWindow.length > _PLI_WINDOW_TICKS) _pliRateWindow.shift()
+        const pliPerMin = _pliRateWindow.reduce((a, b) => a + b, 0)
+        // 简单累加 nack/freeze 速率（同窗口长度）
+        statsRates.value = {
+          pliPerMin,
+          nackPerMin: Math.round(nackDelta * (60 / (recoveryConfig.value.statsIntervalMs / 1000))),
+          freezePerMin: Math.round(freezeDelta * (60 / (recoveryConfig.value.statsIntervalMs / 1000))),
+        }
+      }
 
       const peerSt = conn.connectionState
       const icing = conn.iceConnectionState
@@ -622,7 +793,36 @@ const startStatsMonitor = () => {
         !reconnectScheduled.value &&
         !inboundStalled.value
       ) {
+        // 先尝试软恢复（视频元素 paused 的场景，如 tab 切换回来）
         ensureVideoPlaying()
+        // 数据在进但画面持续冻结 >renderStallMs（默认 10s）：
+        // video.play() 对 VTB/解码器卡死无效，必须重建 PeerConnection 才能清除解码器状态。
+        // 远控安全考量：10s 黑屏/冻帧不可接受，强制软重拉。
+        // 冷却保护：UDP 丢包场景下帧缺失率高，避免每 10s 无限循环重连。
+        const nowMs = Date.now()
+        if (nowMs - lastRenderStallReconnectAt > RENDER_STALL_RECONNECT_COOLDOWN_MS) {
+          lastRenderStallReconnectAt = nowMs
+          scheduleReconnect('render_stall')
+        }
+      }
+
+      // VideoToolbox 规避：仅在「已出现冻结」时触发一次重连并尝试 VP8 优先。
+      // 条件：freezeCount > 0（已有冻结记录）才触发，避免"仅检测到 VTB 就重拉"的循环。
+      // 背景：ZLM 若不支持 VP8，协商会自动回退 H264，vtb_vp8_switch 无副作用，
+      //        但 softStop 不重置标志（见上方），所以此处只会触发一次，不会循环。
+      if (
+        connectedOk &&
+        !loading.value &&
+        !vtbVp8SwitchScheduled &&
+        !triedVp8Preference &&
+        videoToolboxDetected.value &&
+        rtcStats.value.freezeCount > 0 &&
+        firstStableMediaAtMs > 0 &&
+        Date.now() - firstStableMediaAtMs > POST_MEDIA_SETTLE_MS
+      ) {
+        vtbVp8SwitchScheduled = true
+        lastRecoveryHint.value = '检测到 VideoToolbox 且已出现冻结，尝试切换 VP8 软解'
+        scheduleReconnect('vtb_vp8_switch')
       }
     } catch { /* connection closed */ }
   }, recoveryConfig.value.statsIntervalMs)
@@ -677,7 +877,12 @@ const play = async () => {
     loading.value = false
     return
   }
-  loading.value = true
+  // On soft-reconnects (softStop keeps srcObject alive so the last frozen frame remains visible),
+  // do NOT show the loading overlay — the user sees a brief frozen frame rather than a black screen.
+  // Only show loading on the very first load (no srcObject yet) or after a hard stop (srcObject = null).
+  if (!videoRef.value.srcObject) {
+    loading.value = true
+  }
   error.value = ''
   firstStableMediaAtMs = 0
 
@@ -692,14 +897,42 @@ const play = async () => {
     const videoTransceiver = conn.addTransceiver('video', { direction: 'recvonly' })
     conn.addTransceiver('audio', { direction: 'recvonly' })
 
+    // VideoToolbox 规避：若检测到 VideoToolbox 解码器，把 VP8/VP9 排到 H.264 前面。
+    // ZLM 支持 VP8 时浏览器走 FFmpeg 软解，彻底消除 VideoToolbox 丢包冻结 bug。
+    // ZLM 不支持时 SDP 协商自动降回 H.264，无副作用。
+    if (videoToolboxDetected.value && !triedVp8Preference) {
+      triedVp8Preference = true
+      try {
+        const caps = RTCRtpReceiver.getCapabilities('video')
+        if (caps) {
+          const vp8vp9 = caps.codecs.filter(c => /VP[89]/i.test(c.mimeType))
+          const rest   = caps.codecs.filter(c => !/VP[89]/i.test(c.mimeType))
+          const ordered = [...vp8vp9, ...rest]
+          if (ordered.length > 0 && videoTransceiver.setCodecPreferences) {
+            videoTransceiver.setCodecPreferences(ordered)
+          }
+        }
+      } catch { /* setCodecPreferences 不支持时静默跳过 */ }
+    }
+
     // 低延迟直播场景：提示 jitter buffer 最小化缓冲，避免 modify_stamp 时间戳平滑导致的 ~220ms 地板
     if ('playoutDelayHint' in videoTransceiver.receiver) {
       ;(videoTransceiver.receiver as any).playoutDelayHint = 0
+    }
+    // jitterBufferTarget=120ms: with congestion_control=0, 4G jitter passes through unsmoothed.
+    // Observed average jitter ~53ms, peaks ~80ms (from ping mdev/max on .110).
+    // 120ms provides ~40ms headroom above typical peak, keeping video smooth without
+    // excessive latency (total end-to-end remains well under 200ms target).
+    if ('jitterBufferTarget' in videoTransceiver.receiver) {
+      ;(videoTransceiver.receiver as any).jitterBufferTarget = 120
     }
 
     conn.ontrack = (e) => {
       if (e.receiver && 'playoutDelayHint' in e.receiver) {
         ;(e.receiver as any).playoutDelayHint = 0
+      }
+      if (e.receiver && 'jitterBufferTarget' in e.receiver) {
+        ;(e.receiver as any).jitterBufferTarget = 120
       }
       if (videoRef.value && e.streams[0]) {
         videoRef.value.srcObject = e.streams[0]
@@ -866,6 +1099,7 @@ const scheduleReconnect = (reason: string) => {
   cancelReconnect()
   if (!props.baseUrl || !props.app || !props.stream) return
   reconnectScheduled.value = true
+  console.warn('[WebRTC]', `scheduleReconnect reason=${reason}`, `stream=${props.stream}`, `peer=${peerConnectionState.value} ice=${iceConnectionState.value}`)
   if (reason === 'inbound_stall') {
     lastRecoveryHint.value =
       '收流 RTP 字节在 connected 状态下长期不增长：按收流停滞软重拉'
@@ -874,6 +1108,8 @@ const scheduleReconnect = (reason: string) => {
       'Peer disconnected 超过宽限期未恢复 → 重建 SDP / ICE'
   } else if (reason === 'ice_peer_failed') {
     lastRecoveryHint.value = 'PeerConnection failed → SDP 重建'
+  } else if (reason === 'render_stall') {
+    lastRecoveryHint.value = `画面冻结超 ${recoveryConfig.value.renderStallMs / 1000}s（数据仍在进）→ 重建解码器`
   } else {
     lastRecoveryHint.value = `reconnect:${reason}`
   }
@@ -895,6 +1131,9 @@ const ensureVideoPlaying = () => {
  * to avoid black frame flash that triggers browser fullscreen exit.
  */
 const softStop = () => {
+  // 不重置 triedVp8Preference / vtbVp8SwitchScheduled：
+  // 软重拉是同一会话内的恢复，若在此重置，VTB 检测到后每次重拉都会再次触发 vtb_vp8_switch，
+  // 形成"检测→重拉→检测→重拉"的无限循环。只在 stop()（用户主动断开）时才重置。
   cancelReconnect()
   cancelDisconnectGrace()
   if (iceFailedDeferTimer != null) {
@@ -904,6 +1143,10 @@ const softStop = () => {
   stopStatsMonitor()
   stopRvfcMonitoring()
   firstStableMediaAtMs = 0
+  // lastRenderStallReconnectAt is intentionally NOT reset here:
+  // resetting it on every softStop() (which runs on every reconnect) would defeat
+  // the 60-second cooldown and cause render_stall → reconnect → render_stall loops.
+  // It is only reset in stop() (user-initiated session end).
   inboundStalled.value = false
   renderStalled.value = false
   if (pc) {
@@ -918,6 +1161,10 @@ const softStop = () => {
 }
 
 const stop = () => {
+  // 用户主动停流或组件销毁：重置 VTB 标志，确保下次打开时可以重新尝试 VP8。
+  // （softStop 软重拉路径不重置，以防止 vtb_vp8_switch 在同一会话内循环触发。）
+  triedVp8Preference = false
+  vtbVp8SwitchScheduled = false
   softStop()
   stopElapsedTimer()
   containFrameInset.value = null
@@ -1210,6 +1457,30 @@ defineExpose({ play, stop, retry })
   .stats-fade-leave-active { transition: opacity 0.2s, transform 0.2s; }
   .stats-fade-enter-from,
   .stats-fade-leave-to { opacity: 0; transform: translateY(-4px); }
+
+  // VideoToolbox 警告条
+  .webrtc-vtb-warn {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    z-index: 5;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: rgba(120, 53, 15, 0.85);
+    backdrop-filter: blur(6px);
+    color: #fde68a;
+    font-size: 11px;
+    line-height: 1.5;
+    pointer-events: none;
+    code {
+      font-size: 10px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 3px;
+      padding: 0 3px;
+      color: #fef3c7;
+    }
+  }
 
   .webrtc-loading,
   .webrtc-error {

@@ -13,7 +13,6 @@
             <a-tag v-if="vehicle" :color="getStateColor(vehicle.state?.value)">
               {{ vehicle.state?.text || vehicle.state?.value || '—' }}
             </a-tag>
-            <a-tag color="processing">{{ $t('parallel-driving.vehicle-detail.remote-focus-badge') }}</a-tag>
           </div>
         </div>
       </div>
@@ -97,9 +96,20 @@
           <div class="remote-control-form" style="margin-bottom: 16px">
             <span v-if="remoteFocusFullscreenUi" class="rc-brand">ZERON</span>
             <span v-if="remoteFocusFullscreenUi" class="rc-divider" />
+            <!-- 车牌号 + 在线状态：合并到工具栏同一行 -->
+            <div v-if="remoteFocusFullscreenUi && vehicle" class="rc-group rc-group-vehicle-id">
+              <span class="rc-vehicle-name">{{ vehicle.deviceName || vehicle.deviceId }}</span>
+              <j-badge-status
+                :status="vehicle.state?.value"
+                :text="vehicle.state?.text || vehicle.state?.value"
+                :statusNames="{ online: 'processing', offline: 'error', notActive: 'warning' }"
+                class="rc-vehicle-badge"
+              />
+            </div>
+            <span v-if="remoteFocusFullscreenUi && vehicle" class="rc-divider" />
             <!-- 组 1：驾驶舱 -->
             <div class="rc-group rc-group-cockpit">
-              <span class="rc-label">{{ $t('parallel-driving.vehicle-detail.select-cockpit') }}</span>
+              <span class="rc-label">驾驶仓</span>
               <a-select
                 v-model:value="selectedCockpitId"
                 :placeholder="$t('parallel-driving.vehicle-list.select-cockpit')"
@@ -232,6 +242,7 @@
             <div class="rc-group rc-group-actions">
               <a-button
                 type="primary"
+                size="small"
                 :loading="takingOver"
                 :disabled="
                   isControlling ||
@@ -249,6 +260,7 @@
               </a-button>
               <a-button
                 danger
+                size="small"
                 :loading="releasing"
                 :disabled="!canCloudRelease"
                 class="rc-btn rc-btn-stop"
@@ -277,7 +289,20 @@
 
             <!-- 全屏按钮：接管中或车辆在线均可用 -->
             <div v-if="showVideoMonitoringSection" class="rc-group rc-group-fs">
-              <a-button size="small" class="rc-btn rc-btn-fs" @click="toggleFullscreen">
+              <!-- 有整页全屏能力时显示两个按钮，否则只显示当前页面全屏 -->
+              <a-button v-if="props.onToggleShellFullscreen" size="small" class="rc-btn rc-btn-fs" @click="toggleFullscreen">
+                <template #icon>
+                  <AIcon :type="isFullscreen ? 'FullscreenExitOutlined' : 'FullscreenOutlined'" />
+                </template>
+                {{ isFullscreen ? '退出' : '当前页面' }}
+              </a-button>
+              <a-button v-if="props.onToggleShellFullscreen" size="small" class="rc-btn rc-btn-fs rc-btn-shell-fs" @click="props.onToggleShellFullscreen">
+                <template #icon>
+                  <AIcon :type="props.isShellFullscreen ? 'FullscreenExitOutlined' : 'FullscreenOutlined'" />
+                </template>
+                {{ props.isShellFullscreen ? '退出' : '整个页面' }}
+              </a-button>
+              <a-button v-if="!props.onToggleShellFullscreen" size="small" class="rc-btn rc-btn-fs" @click="toggleFullscreen">
                 <template #icon>
                   <AIcon :type="isFullscreen ? 'FullscreenExitOutlined' : 'FullscreenOutlined'" />
                 </template>
@@ -350,6 +375,7 @@
                         :protocol="VIDEO_CONFIG.protocol"
                         :stream="getHitchStream('rear_left')"
                         :url="getHitchVideoUrl('rear_left')"
+                        :mirror="true"
                       />
                     </div>
                   </div>
@@ -574,6 +600,7 @@
                         :protocol="VIDEO_CONFIG.protocol"
                         :stream="getHitchStream('rear_right')"
                         :url="getHitchVideoUrl('rear_right')"
+                        :mirror="true"
                       />
                     </div>
                   </div>
@@ -1529,8 +1556,12 @@ const props = withDefaults(
   defineProps<{
     /** standard：车辆详情；remote-focus：远控工作台独立页 */
     presentation?: 'standard' | 'remote-focus'
+    /** 由父容器（如 UltrawideShell）注入的整页全屏切换函数 */
+    onToggleShellFullscreen?: () => void
+    /** 整页全屏状态，用于按钮图标/文字同步 */
+    isShellFullscreen?: boolean
   }>(),
-  { presentation: 'standard' },
+  { presentation: 'standard', isShellFullscreen: false },
 )
 const route = useRoute()
 const router = useRouter()
@@ -1595,7 +1626,7 @@ const showLayoutEPipGearBadge = computed(
   () => hasFrontCameraSelected.value && hasBackCameraSelected.value
 )
 /** 各布局均只播放已勾选方向（与「前全宽」一致）；未勾选则不拉流。「左中右」+挂后：左列左+挂后左、右列右+挂后右 */
-const showRearHitchCams = ref(false)
+const showRearHitchCams = ref(true)
 const showFrontAuxGuide = ref(true)
 const showSideAuxGuide = ref(true)
 try {
@@ -1822,7 +1853,8 @@ const VIDEO_CONFIG = {
   streams: {
     front: 'cam_f_12',
     left: 'ipm',
-    right: 'cam_r_13',
+    // right: 'cam_r_13',
+    right: 'cam_f_7',
     back: 'cam_b_18',
     // rear_left: 'cam_l_19',
     // rear_right: 'cam_r_17',
@@ -2972,6 +3004,12 @@ onUnmounted(() => {
     font-weight: 550;
   }
 
+  .rc-vehicle-name {
+    color: rgba(255, 255, 255, 0.96);
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+
   .rc-divider {
     height: 22px;
     background: linear-gradient(
@@ -3338,7 +3376,30 @@ onUnmounted(() => {
 }
 
 .rc-select {
-  width: 220px;
+  width: 154px; // 220px * 0.7
+}
+
+.rc-group-vehicle-id {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.rc-vehicle-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: inherit;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+// badge 文字在深色底上保持可读
+.rc-vehicle-badge {
+  :deep(.ant-badge-status-text) {
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 12px;
+  }
 }
 
 .rc-group-actions {
@@ -5667,6 +5728,14 @@ onUnmounted(() => {
     letter-spacing: 0.02em;
   }
 
+  .rc-vehicle-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.96);
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+
   .rc-brand {
     font-size: 15px;
     font-weight: 700;
@@ -5689,7 +5758,7 @@ onUnmounted(() => {
   }
 
   /* ── Select ── */
-  .rc-select { width: 200px !important; }
+  .rc-select { width: 140px !important; } // 200px * 0.7
   .ant-select { color: @rc-text; }
 
   .ant-select-selector {
@@ -5910,6 +5979,13 @@ onUnmounted(() => {
       border-color: @rc-border-hover !important;
       color: @rc-text !important;
     }
+  }
+
+  .rc-btn-start.ant-btn,
+  .rc-btn-stop.ant-btn {
+    height: 28px !important;
+    padding: 0 12px !important;
+    font-size: 13px !important;
   }
 
   .ant-btn[disabled]:not(.ant-btn-primary):not(.ant-btn-dangerous) {
