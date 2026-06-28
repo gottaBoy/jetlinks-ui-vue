@@ -144,15 +144,17 @@
                   <a-checkbox value="back">{{ $t('parallel-driving.vehicle-detail.video-back') }}</a-checkbox>
                   <a-checkbox value="left">{{ $t('parallel-driving.vehicle-detail.video-left') }}</a-checkbox>
                   <a-checkbox value="right">{{ $t('parallel-driving.vehicle-detail.video-right') }}</a-checkbox>
+                  <a-checkbox value="right">{{ $t('parallel-driving.vehicle-detail.video-right') }}</a-checkbox>
+                  cam_f_7
                 </a-checkbox-group>
-                <a-checkbox
+                <!-- <a-checkbox
                   v-model:checked="showRearHitchCams"
                   class="rc-checkbox-hitch"
                   :title="$t('parallel-driving.vehicle-detail.rear-hitch-hint')"
                 >
                   {{ $t('parallel-driving.vehicle-detail.rear-hitch-cameras') }}
-                </a-checkbox>
-                <span class="rc-aux-guide-inline">
+                </a-checkbox> -->
+                <!-- <span class="rc-aux-guide-inline">
                   <span class="rc-aux-guide-prefix">{{ $t('parallel-driving.vehicle-detail.aux-guides-label') }}</span>
                   <a-checkbox v-model:checked="showFrontAuxGuide" class="rc-checkbox-guide">{{
                     $t('parallel-driving.vehicle-detail.aux-guide-front')
@@ -160,7 +162,7 @@
                   <a-checkbox v-model:checked="showSideAuxGuide" class="rc-checkbox-guide">{{
                     $t('parallel-driving.vehicle-detail.aux-guide-sides')
                   }}</a-checkbox>
-                </span>
+                </span> -->
               </div>
             </div>
 
@@ -201,6 +203,22 @@
                     {{ $t('parallel-driving.vehicle-detail.preflight-dm-c') }}
                   </a-radio-button>
                 </a-radio-group>
+              </div>
+              <!-- MRC 紧急停车：M/A/R 任意模式均可触发，紧挨驾驶模式 -->
+              <div class="rc-group rc-group-mrc">
+                <span class="rc-label">MRC</span>
+                <a-radio-group
+                  :value="mrcStatus"
+                  size="small"
+                  class="rc-mrc-radio"
+                  @change="handleMrcChange"
+                >
+                  <a-radio-button :value="0">正常</a-radio-button>
+                  <a-radio-button :value="1">MRC0</a-radio-button>
+                  <a-radio-button :value="2">MRC1</a-radio-button>
+                  <a-radio-button :value="3" disabled>MRC2</a-radio-button>
+                </a-radio-group>
+
               </div>
               <!-- 远控预置：仅在远控模式(R/2)下显示 -->
               <template v-if="Number(uiDriveMode) === 2">
@@ -382,7 +400,7 @@
                 </div>
                 <!-- 中列：front + back 各渲染一次，CSS 交换大小位置 -->
                 <div class="layout-e-center" :style="{ flex: layoutECenterFlex }" :class="{ 'is-reverse': isReverse }">
-                  <!-- 前视频层 — 正常=主画面, 倒车=PiP -->
+                  <!-- 前视频层 — D主/R隐 -->
                   <div ref="frontVideoCalibHostRef" class="layout-e-layer layout-e-layer-front">
                     <VideoCell
                       :label="$t('parallel-driving.vehicle-detail.video-front')"
@@ -391,18 +409,15 @@
                       :protocol="VIDEO_CONFIG.protocol"
                       :stream="getVideoStream('front')"
                       :url="getVideoUrl('front')"
+                      :abr-layers="getAbrLayers()"
+                      :abr-preset="getAbrPreset('front')"
                       :show-distance-guide="false"
                       :front-calib-match-external="showFrontAuxGuideVisible"
                       :show-cloud-link-rtt="showFrontCloudLinkRtt"
                       :cloud-link-network-rtt-ms="vehicleStatus.cloudLinkNetworkRttMs"
                     />
-                    <!-- R 档 PiP 为前视：角标锚在真实 PiP 层右下角，避免与 center 上 calc 错位 -->
-                    <span
-                      v-if="showLayoutEPipGearBadge && isReverse"
-                      class="layout-e-pip-badge layout-e-pip-badge--anchored is-reverse"
-                    >R</span>
                   </div>
-                  <!-- 后视频层 — 正常=PiP, 倒车=主画面 -->
+                  <!-- 后视频层 — D隐/R主 -->
                   <div class="layout-e-layer layout-e-layer-back">
                     <VideoCell
                       :label="$t('parallel-driving.vehicle-detail.video-back')"
@@ -411,12 +426,9 @@
                       :protocol="VIDEO_CONFIG.protocol"
                       :stream="getVideoStream('back')"
                       :url="getVideoUrl('back')"
+                      :abr-layers="getAbrLayers()"
+                      :abr-preset="getAbrPreset('back')"
                     />
-                    <!-- D 档 PiP 为后视：同上 -->
-                    <span
-                      v-if="showLayoutEPipGearBadge && !isReverse"
-                      class="layout-e-pip-badge layout-e-pip-badge--anchored"
-                    >D</span>
                   </div>
                   <!-- 前视距离引导：须叠在视频层之上；layout-e 内前视在 z-index:1 子层，无法压过 HUD(5)，故在此单独挂一层 -->
                   <FrontCameraDistanceGuide
@@ -574,23 +586,69 @@
                     </div>
                   </div>
                 </div>
-                <!-- 右列：挂后时在右视下方叠挂后右 cam_b_19 -->
+                <!-- cam_f_7 辅助前视 PiP：左缘对齐中列左缘 -->
+                <div class="layout-e-layer layout-e-layer-f7">
+                  <VideoCell
+                    label="前辅 cam_f_7"
+                    :base-url="VIDEO_CONFIG.baseUrl"
+                    :app="videoStreamAppPlayback"
+                    :protocol="VIDEO_CONFIG.protocol"
+                    :stream="getVideoStream('right')"
+                    :url="getVideoUrl('right')"
+                    :show-distance-guide="false"
+                  />
+                </div>
+                <!-- 右列：上=前后双层CSS交换（与中列方向相反），下=挂后右 -->
                 <div class="layout-e-right" :style="layoutESideColumnStyle">
+                  <!-- MRC1 可拖动按钮：常态=进入MRC1点击下发MRC1，激活后=退出MRC1点击下发MRC0 -->
+                  <div
+                    v-if="isControlling || isVehicleOnline"
+                    class="layout-e-mrc1-badge"
+                    :style="mrc1BtnStyle"
+                    @mousedown.prevent="startDragMrc1"
+                    @touchstart.prevent="startDragMrc1"
+                  >
+                    <button
+                      ref="mrc1BtnRef"
+                      class="mrc1-circle-btn"
+                      :class="{ 'is-dragging': isDraggingMrc1, 'is-alarm': Number(vehicleStatus.mrcStatus) >= 2 }"
+                      :title="Number(vehicleStatus.mrcStatus) >= 2 ? '退出MRC1' : '进入MRC1'"
+                      :aria-label="Number(vehicleStatus.mrcStatus) >= 2 ? '退出MRC1' : '进入MRC1'"
+                      @click="handleMrc1BadgeClick"
+                    >
+                      <span class="mrc1-circle-icon" aria-hidden="true">
+                        {{ Number(vehicleStatus.mrcStatus) >= 2 ? '退出MRC1' : '进入MRC1' }}
+                      </span>
+                    </button>
+                  </div>
                   <div
                     class="layout-e-side-stack"
                     :class="{ 'layout-e-side-stack--solo': !showRearHitchCams }"
                     :role="showRearHitchCams ? 'group' : undefined"
                     :aria-label="showRearHitchCams ? $t('parallel-driving.vehicle-detail.rear-hitch-right-column') : undefined"
                   >
-                    <div class="layout-e-side-half">
-                      <VideoCell
-                        :label="$t('parallel-driving.vehicle-detail.video-right')"
-                        :base-url="VIDEO_CONFIG.baseUrl"
-                        :app="videoStreamAppPlayback"
-                        :protocol="VIDEO_CONFIG.protocol"
-                        :stream="getVideoStream('right')"
-                        :url="getVideoUrl('right')"
-                      />
+                    <!-- 右列上层：前+后双层，CSS交换。D档=后主, R档=前主（与中列相反） -->
+                    <div class="layout-e-side-half layout-e-right-dual-host" :class="{ 'is-reverse': isReverse }">
+                      <div class="layout-e-layer layout-e-right-layer-front">
+                        <VideoCell
+                          :label="$t('parallel-driving.vehicle-detail.video-front')"
+                          :base-url="VIDEO_CONFIG.baseUrl"
+                          :app="videoStreamAppPlayback"
+                          :protocol="VIDEO_CONFIG.protocol"
+                          :stream="getVideoStream('front')"
+                          :url="getVideoUrl('front')"
+                        />
+                      </div>
+                      <div class="layout-e-layer layout-e-right-layer-back">
+                        <VideoCell
+                          :label="$t('parallel-driving.vehicle-detail.video-back')"
+                          :base-url="VIDEO_CONFIG.baseUrl"
+                          :app="videoStreamAppPlayback"
+                          :protocol="VIDEO_CONFIG.protocol"
+                          :stream="getVideoStream('back')"
+                          :url="getVideoUrl('back')"
+                        />
+                      </div>
                     </div>
                     <div v-if="showRearHitchCams" class="layout-e-side-half">
                       <VideoCell
@@ -600,6 +658,8 @@
                         :protocol="VIDEO_CONFIG.protocol"
                         :stream="getHitchStream('rear_right')"
                         :url="getHitchVideoUrl('rear_right')"
+                        :abr-layers="getAbrLayers()"
+                        :abr-preset="getAbrPreset('rear_right')"
                         :mirror="true"
                       />
                     </div>
@@ -620,6 +680,8 @@
                         :protocol="VIDEO_CONFIG.protocol"
                         :stream="getVideoStream('front')"
                         :url="getVideoUrl('front')"
+                        :abr-layers="getAbrLayers()"
+                        :abr-preset="getAbrPreset('front')"
                         :show-cloud-link-rtt="showFrontCloudLinkRtt"
                         :cloud-link-network-rtt-ms="vehicleStatus.cloudLinkNetworkRttMs"
                       />
@@ -789,6 +851,8 @@
                       :protocol="VIDEO_CONFIG.protocol"
                       :stream="getVideoStream('back')"
                       :url="getVideoUrl('back')"
+                      :abr-layers="getAbrLayers()"
+                      :abr-preset="getAbrPreset('back')"
                     />
                   </div>
                   <div class="layout-d-cell">
@@ -800,6 +864,8 @@
                       :protocol="VIDEO_CONFIG.protocol"
                       :stream="getVideoStream('left')"
                       :url="getVideoUrl('left')"
+                      :abr-layers="getAbrLayers()"
+                      :abr-preset="getAbrPreset('left')"
                     />
                   </div>
                   <div class="layout-d-cell">
@@ -811,6 +877,8 @@
                       :protocol="VIDEO_CONFIG.protocol"
                       :stream="getVideoStream('right')"
                       :url="getVideoUrl('right')"
+                      :abr-layers="getAbrLayers()"
+                      :abr-preset="getAbrPreset('right')"
                     />
                   </div>
                 </div>
@@ -830,6 +898,8 @@
                           :protocol="VIDEO_CONFIG.protocol"
                           :stream="getVideoStream('front')"
                           :url="getVideoUrl('front')"
+                          :abr-layers="getAbrLayers()"
+                          :abr-preset="getAbrPreset('front')"
                           :show-cloud-link-rtt="showFrontCloudLinkRtt"
                           :cloud-link-network-rtt-ms="vehicleStatus.cloudLinkNetworkRttMs"
                         />
@@ -1009,6 +1079,8 @@
                       :protocol="VIDEO_CONFIG.protocol"
                       :stream="getVideoStream('back')"
                       :url="getVideoUrl('back')"
+                      :abr-layers="getAbrLayers()"
+                      :abr-preset="getAbrPreset('back')"
                     />
                   </div>
                 </div>
@@ -1022,6 +1094,8 @@
                       :protocol="VIDEO_CONFIG.protocol"
                       :stream="getVideoStream('left')"
                       :url="getVideoUrl('left')"
+                      :abr-layers="getAbrLayers()"
+                      :abr-preset="getAbrPreset('left')"
                     />
                   </div>
                   <div class="layout-a-col">
@@ -1033,6 +1107,8 @@
                       :protocol="VIDEO_CONFIG.protocol"
                       :stream="getVideoStream('right')"
                       :url="getVideoUrl('right')"
+                      :abr-layers="getAbrLayers()"
+                      :abr-preset="getAbrPreset('right')"
                     />
                   </div>
                 </div>
@@ -1049,6 +1125,8 @@
                         :base-url="VIDEO_CONFIG.baseUrl"
                         :app="videoStreamAppPlayback"
                         :stream="getVideoStream('front')!"
+                        :abr-layers="getAbrLayers()"
+                        :abr-preset="getAbrPreset('front')"
                         :show-cloud-link-rtt="showFrontCloudLinkRtt"
                         :cloud-link-network-rtt-ms="vehicleStatus.cloudLinkNetworkRttMs"
                         :fast-video-recovery="isControlling"
@@ -1244,6 +1322,8 @@
                         :protocol="VIDEO_CONFIG.protocol"
                         :stream="getVideoStream('back')"
                         :url="getVideoUrl('back')"
+                        :abr-layers="getAbrLayers()"
+                        :abr-preset="getAbrPreset('back')"
                       />
                     </a-col>
                     <a-col :span="24">
@@ -1254,6 +1334,8 @@
                         :protocol="VIDEO_CONFIG.protocol"
                         :stream="getVideoStream('left')"
                         :url="getVideoUrl('left')"
+                        :abr-layers="getAbrLayers()"
+                        :abr-preset="getAbrPreset('left')"
                       />
                     </a-col>
                     <a-col :span="24">
@@ -1264,6 +1346,8 @@
                         :protocol="VIDEO_CONFIG.protocol"
                         :stream="getVideoStream('right')"
                         :url="getVideoUrl('right')"
+                        :abr-layers="getAbrLayers()"
+                        :abr-preset="getAbrPreset('right')"
                       />
                     </a-col>
                   </a-row>
@@ -1283,6 +1367,8 @@
                           :base-url="VIDEO_CONFIG.baseUrl"
                           :app="videoStreamAppPlayback"
                           :stream="getVideoStream('front')!"
+                          :abr-layers="getAbrLayers()"
+                          :abr-preset="getAbrPreset('front')"
                           :show-cloud-link-rtt="showFrontCloudLinkRtt"
                           :cloud-link-network-rtt-ms="vehicleStatus.cloudLinkNetworkRttMs"
                           :fast-video-recovery="isControlling"
@@ -1480,6 +1566,8 @@
                       :protocol="VIDEO_CONFIG.protocol"
                       :stream="getVideoStream('left')"
                       :url="getVideoUrl('left')"
+                      :abr-layers="getAbrLayers()"
+                      :abr-preset="getAbrPreset('left')"
                     />
                   </div>
                   <div class="layout-c-col">
@@ -1490,6 +1578,8 @@
                       :protocol="VIDEO_CONFIG.protocol"
                       :stream="getVideoStream('back')"
                       :url="getVideoUrl('back')"
+                      :abr-layers="getAbrLayers()"
+                      :abr-preset="getAbrPreset('back')"
                     />
                   </div>
                   <div class="layout-c-col">
@@ -1500,6 +1590,8 @@
                       :protocol="VIDEO_CONFIG.protocol"
                       :stream="getVideoStream('right')"
                       :url="getVideoUrl('right')"
+                      :abr-layers="getAbrLayers()"
+                      :abr-preset="getAbrPreset('right')"
                     />
                   </div>
                 </div>
@@ -1516,7 +1608,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, provide, reactive, ref, watch } from 'vue'
+import { computed, h, nextTick, onMounted, onUnmounted, provide, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { onlyMessage } from '@/utils/comm'
@@ -1540,6 +1632,7 @@ import HudSteerStatBlock from '../../components/HudSteerStatBlock.vue'
 import HudTurnInnerWheel from '../../components/HudTurnInnerWheel.vue'
 import HudHeadlightBeamIcon from '../../components/HudHeadlightBeamIcon.vue'
 import { CloseOutlined } from '@ant-design/icons-vue'
+import { Modal, notification } from 'ant-design-vue'
 import HudAuxStatusRow from '../../components/HudAuxStatusRow.vue'
 import FrontCameraDistanceGuide from '../../components/FrontCameraDistanceGuide.vue'
 import { DEFAULT_FRONT_GUIDE_ROWS } from '../../components/front-camera-guide-config'
@@ -1621,14 +1714,10 @@ const remoteCModeDisabledReason = computed(() => {
 const selectedVideoDirections = ref<string[]>(['front', 'back', 'left', 'right'])
 const hasFrontCameraSelected = computed(() => selectedVideoDirections.value.includes('front'))
 const hasBackCameraSelected = computed(() => selectedVideoDirections.value.includes('back'))
-/** 左中右中列：仅前后都勾选时才有 PiP/D·R 角标语义；角标放在 PiP 层内用 right/bottom 锚定，避免改 PiP 宽或勾选前后时与全局 calc 错位 */
-const showLayoutEPipGearBadge = computed(
-  () => hasFrontCameraSelected.value && hasBackCameraSelected.value
-)
 /** 各布局均只播放已勾选方向（与「前全宽」一致）；未勾选则不拉流。「左中右」+挂后：左列左+挂后左、右列右+挂后右 */
 const showRearHitchCams = ref(true)
 const showFrontAuxGuide = ref(true)
-const showSideAuxGuide = ref(true)
+const showSideAuxGuide = ref(false)  // 左右辅助线默认不选中
 try {
   const f = localStorage.getItem(FRONT_AUX_GUIDE_LS_KEY)
   const s = localStorage.getItem(SIDE_AUX_GUIDE_LS_KEY)
@@ -1657,7 +1746,7 @@ watch(showSideAuxGuide, (v) => {
   } catch {
     /* ignore */
   }
-}, { immediate: true })
+})
 const LAYOUT_STORAGE_KEY = 'parallel-driving-layout-mode'
 const layoutMode = ref<'a' | 'b' | 'c' | 'd' | 'e'>(
   (() => {
@@ -1769,7 +1858,9 @@ const handlePrefSwitchChange = async (
   }
 }
 
-/** 驾驶模式切换：更新偏好并下发命令到车端。Radio 仅作为偏好选项，不同步底盘实际值 */
+/** 驾驶模式切换：更新偏好并下发命令到车端。
+ *  uiDriveMode 会随后被 chassis_status.drive_mode 的 watch 同步为实车状态；
+ *  若命令被车端拒绝（如刹车接管中），radio 会自动回弹到实际模式。 */
 const handleDriveModeChange = async (e: { target: { value: number } }) => {
   const mode = e.target.value as 0 | 1 | 2
   if (mode === 0) {
@@ -1792,7 +1883,159 @@ const takingOver = ref(false)
 const releasing = ref(false)
 const isControlling = ref(false)
 const vehicleStatus = reactive<Record<string, any>>({})
-/** 驾驶模式偏好：仅存储用户选择，不随底盘状态变化；底盘实际值通过 vehicleStatus.drivemode 单独显示 */
+
+// MRC 紧急停车状态：0=正常, 1=MRC0, 2=MRC1, 3=MRC2（M/A/R 任意模式均可触发）
+const mrcStatus = ref<0|1|2|3>(0)
+let mrcPendingLevel: 0|1|2|3 | null = null
+/** MRC1 圆形按钮：点击即下发 MRC1 */
+const mrc1BtnRef = ref<HTMLElement | null>(null)
+
+// ── 可拖动位置（默认右上角），持久化到 localStorage ──
+const MRC1_POS_LS_KEY = 'pd_mrc1_btn_pos'
+const readMrc1Pos = (): { top: string; left: string } => {
+  try {
+    const raw = localStorage.getItem(MRC1_POS_LS_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      // 旧版存储 right，新版改为 left：迁移兼容
+      if (parsed.right && !parsed.left) {
+        return { top: parsed.top || '12px', left: parsed.right }
+      }
+      return { top: parsed.top || '12px', left: parsed.left || '12px' }
+    }
+  } catch { /* ignore */ }
+  return { top: '12px', left: '12px' }
+}
+const mrc1Pos = reactive(readMrc1Pos())
+const mrc1BtnStyle = computed(() => ({
+  top: mrc1Pos.top,
+  left: mrc1Pos.left,
+  right: 'auto',
+  bottom: 'auto',
+}))
+
+const isDraggingMrc1 = ref(false)
+let mrc1DragStart = { x: 0, y: 0, top: 0, left: 0 }
+
+const startDragMrc1 = (e: MouseEvent | TouchEvent) => {
+  const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+  const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+  const parent = (e.currentTarget as HTMLElement).parentElement
+  if (!parent) return
+  const rect = parent.getBoundingClientRect()
+  isDraggingMrc1.value = true
+  mrc1DragStart = {
+    x: clientX,
+    y: clientY,
+    top: parseInt(mrc1Pos.top) || 12,
+    left: parseInt(mrc1Pos.left) || 12,
+  }
+  const onMove = (ev: MouseEvent | TouchEvent) => {
+    if (!isDraggingMrc1.value) return
+    const cx = 'touches' in ev ? ev.touches[0].clientX : ev.clientX
+    const cy = 'touches' in ev ? ev.touches[0].clientY : ev.clientY
+    const dx = mrc1DragStart.x - cx
+    const dy = cy - mrc1DragStart.y
+    // 上下边界：按钮在父容器内
+    const maxTop = Math.max(0, rect.height - 104)
+    const newTop = Math.max(0, Math.min(maxTop, mrc1DragStart.top + dy))
+    const maxLeft = Math.max(0, rect.width - 104)
+    const newLeft = Math.max(0, Math.min(maxLeft, mrc1DragStart.left - dx))
+    mrc1Pos.top = `${Math.round(newTop)}px`
+    mrc1Pos.left = `${Math.round(newLeft)}px`
+  }
+  const onEnd = () => {
+    isDraggingMrc1.value = false
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onEnd)
+    document.removeEventListener('touchmove', onMove)
+    document.removeEventListener('touchend', onEnd)
+    try { localStorage.setItem(MRC1_POS_LS_KEY, JSON.stringify({ top: mrc1Pos.top, left: mrc1Pos.left })) } catch { /* ignore */ }
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onEnd)
+  document.addEventListener('touchmove', onMove)
+  document.addEventListener('touchend', onEnd)
+}
+
+const handleMrc1BadgeClick = async () => {
+  if (isDraggingMrc1.value) return
+  const cid = selectedCockpitId.value
+  const vid = vehicle.value?.deviceId
+  if (!cid || !vid) {
+    onlyMessage('请先选择驾驶仓', 'warning')
+    return
+  }
+  const isActive = Number(vehicleStatus.mrcStatus) === 2
+  const level = isActive ? 0 : 2  // 激活→恢复正常, 正常→下发MRC1
+  const label = isActive ? 'MRC0（恢复正常）' : 'MRC1（紧急制动）'
+  try {
+    await sendControlCommand({ cockpitDeviceId: cid, vehicleDeviceId: vid, controlType: 'MRC', params: { mrc_status: level } })
+    onlyMessage(`已下发 ${label}`)
+  } catch (err) {
+    console.warn('[MRC1 badge] send failed', err)
+    onlyMessage(`${label} 下发失败`, 'error')
+  }
+}
+
+const handleMrcChange = (val: any) => {
+  const level = (val?.target?.value ?? val) as 0|1|2|3
+  console.log('[MRC] level=', level, 'prev=', mrcStatus.value, 'cid=', selectedCockpitId.value, 'vid=', vehicle.value?.deviceId)
+  if (level === mrcStatus.value) return
+  const prevLevel = mrcStatus.value
+  // 先切换 radio 视觉
+  mrcStatus.value = level
+  const mrcLabels = ['正常', 'MRC0', 'MRC1', 'MRC2']
+  Modal.confirm({
+    title: '确认 MRC 紧急停车',
+    content: `确定将 MRC 状态从「${mrcLabels[prevLevel]}」切换为「${mrcLabels[level]}」？`,
+    okText: '确定',
+    cancelText: '取消',
+    okType: level > 0 ? 'danger' : 'primary',
+    wrapClassName: 'pd-mrc-confirm-dark',
+    onOk: async () => {
+      const cid = selectedCockpitId.value
+      const vid = vehicle.value?.deviceId
+      if (!cid || !vid) {
+        onlyMessage('请先选择驾驶仓', 'warning')
+        mrcStatus.value = prevLevel
+        return
+      }
+      try {
+        await sendControlCommand({ cockpitDeviceId: cid, vehicleDeviceId: vid, controlType: 'MRC', params: { mrc_status: level } })
+      } catch (err) {
+        console.warn('[MRC] send failed', err)
+        mrcStatus.value = prevLevel
+      }
+    },
+    onCancel: () => {
+      mrcStatus.value = prevLevel
+    },
+  })
+}
+
+/**
+ * Sync uiDriveMode (radio display) from actual vehicle mode reported via chassis_status.
+ * This keeps the M/A/R radio in sync with reality after brake takeover (R→M),
+ * ADS exit (A→M), or any other mode change not initiated by this page.
+ *
+ * remotePrefDriveMode is intentionally NOT synced here — it only changes on explicit
+ * user clicks, so takeover preflight always uses the user's last intentional choice.
+ */
+watch(
+  () => vehicleStatus.drivemode,
+  (mode) => {
+    if (mode == null) return  // no chassis data yet, keep initial value from localStorage
+    const m = Number(mode)
+    if (![0, 1, 2].includes(m)) return
+    if (uiDriveMode.value !== m) {
+      uiDriveMode.value = m as 0 | 1 | 2
+    }
+  },
+)
+
+/** 驾驶模式偏好：仅存储用户最后一次主动点击的值，用于接管预置；不随底盘状态变化 */
+/** uiDriveMode：radio 显示值，自动同步自 chassis_status.drive_mode（实车状态） */
 const uiDriveMode = ref<0 | 1 | 2>(
   [0, 1, 2].includes(Number(remotePrefDriveMode.value)) ? (remotePrefDriveMode.value as 0 | 1 | 2) : 0
 )
@@ -1859,9 +2102,39 @@ const VIDEO_CONFIG = {
     // rear_left: 'cam_l_19',
     // rear_right: 'cam_r_17',
     rear_left: 'cam_lb_4',
-    rear_right: 'cam_rb_10',
-    ipm: 'ipm'
+    rear_right: 'cam_rb_10'
   },
+  abr: {
+    enabled: false,
+    layers: ['_high', '_mid', '_low'] as const,
+  },
+  // 车端 stream_settings.yml simulcast.enabled。关闭时流名无 _high/_mid/_low 后缀。
+  simulcastEnabled: false,
+}
+
+/** ABR 层级列表（所有流共用） */
+const ABR_LAYERS = ['_high', '_mid', '_low'] as const
+
+/** 摄像头方向 → ABR 策略预设映射 */
+const ABR_PRESET_MAP: Record<string, 'critical' | 'high' | 'normal' | 'low'> = {
+  front: 'critical',
+  back: 'high',
+  left: 'normal',
+  right: 'normal',
+  rear_left: 'low',
+  rear_right: 'low',
+}
+
+/** 根据流 key 获取 ABR 策略预设 */
+const getAbrPreset = (key: string): 'critical' | 'high' | 'normal' | 'low' | undefined => {
+  if (!VIDEO_CONFIG.abr.enabled) return undefined
+  return ABR_PRESET_MAP[key]
+}
+
+/** 获取 ABR 层级列表（关闭时返回 undefined） */
+const getAbrLayers = (): string[] | undefined => {
+  if (!VIDEO_CONFIG.abr.enabled) return undefined
+  return [...ABR_LAYERS]
 }
 
 const videoStreamApp = computed(() => {
@@ -1889,7 +2162,7 @@ watch(
 const videoStreamAppPlayback = computed(() => {
   const id = vehicleId.value
   if (!id) return ''
-  return lockedPlaybackInternalCodeByRouteId.value[id] || ''
+  return lockedPlaybackInternalCodeByRouteId.value[id] || '' // 'netbird'
 })
 
 // 协议：webrtc 低延迟 | m3u8(HLS) | flv
@@ -1909,7 +2182,12 @@ const videoStreamAppPlayback = computed(() => {
 const getVideoStream = (key: string) => {
   /** 与「前全宽」一致：仅勾选的方向拉流；全不勾选则不播放该路 */
   if (!selectedVideoDirections.value.includes(key)) return null
-  return (VIDEO_CONFIG.streams as Record<string, string>)[key] || null
+  const base = (VIDEO_CONFIG.streams as Record<string, string>)[key] || null
+  if (!base) return null
+  // simulcast off → 流名无后缀；ABR off + simulcast on → 固定 _high；ABR on → 由 WebRtcPlayer 内部拼后缀
+  if (!VIDEO_CONFIG.simulcastEnabled) return base
+  if (!VIDEO_CONFIG.abr.enabled) return `${base}_high`
+  return base
 }
 
 const getVideoUrl = (key: string) => {
@@ -1926,7 +2204,11 @@ const getVideoUrl = (key: string) => {
 /** 挂后辅路：cam_b_17 / cam_b_19，仅勾选「挂后」且在左中右布局中启用 */
 const getHitchStream = (key: 'rear_left' | 'rear_right'): string | null => {
   if (!showRearHitchCams.value) return null
-  return (VIDEO_CONFIG.streams as Record<string, string>)[key] ?? null
+  const base = (VIDEO_CONFIG.streams as Record<string, string>)[key] ?? null
+  if (!base) return null
+  if (!VIDEO_CONFIG.simulcastEnabled) return base
+  if (!VIDEO_CONFIG.abr.enabled) return `${base}_high`
+  return base
 }
 
 const getHitchVideoUrl = (key: 'rear_left' | 'rear_right') => {
@@ -2290,7 +2572,7 @@ const applyChassisStatusToVehicleStatus = (properties: Record<string, any>) => {
   // 转向
   const steering = raw.vcu_steer_angle
   // 驾驶模式 0=Manual, 1=Auto
-  const drivemodeRaw = raw.vcu_vcu_pt_ctrl_auto_sts
+  const drivemodeRaw = raw.drive_mode ?? raw.vcu_vcu_pt_ctrl_auto_sts
 
   // const spdReq = Number(raw.adcu_spd_req)
   // const extAcc = Number(raw.adcu_ext_acc_demand)
@@ -2383,8 +2665,68 @@ const applyChassisStatusToVehicleStatus = (properties: Record<string, any>) => {
     if (Number.isFinite(n)) patch.cloudLinkNetworkRttMs = Math.round(n)
   }
 
+  // ── MRC 状态：health_arbitrator 裁决结果 ──
+  const mrcStatusRaw = raw.mrc_status ?? (properties as any).mrc_status
+  if (mrcStatusRaw != null) {
+    const ms = Number(mrcStatusRaw)
+    if (Number.isFinite(ms)) patch.mrcStatus = ms
+  }
+  if (raw.mrc_error_name != null || (properties as any).mrc_error_name != null) {
+    patch.mrcErrorName = (raw.mrc_error_name ?? (properties as any).mrc_error_name) as string
+  } else {
+    patch.mrcErrorName = ''
+  }
+  const mrcTs = raw.mrc_timestamp ?? (properties as any).mrc_timestamp
+  if (mrcTs != null) {
+    const n = Number(mrcTs)
+    if (Number.isFinite(n)) patch.mrcTimestamp = n  // epoch ms
+  }
+
   return patch
 }
+
+/** MRC timestamp (epoch ms) → HH:MM:SS local time */
+const formatMrcTimestamp = (epochMs: number | undefined): string => {
+  if (epochMs == null || !Number.isFinite(epochMs)) return ''
+  const d = new Date(epochMs)
+  if (isNaN(d.getTime())) return ''
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  const ss = String(d.getSeconds()).padStart(2, '0')
+  return `${hh}:${mm}:${ss}`
+}
+
+/**
+ * MRC 通知：仅 2(MRC1) / 3(MRC2) / 4(MRC3) 弹 error 通知，需手动关闭。
+ * 同一 key 'mrc-status'，每次新通知替换上一个。
+ */
+const MRC_LABELS: Record<number, string> = { 0: '正常', 1: 'MRC0', 2: 'MRC1', 3: 'MRC2', 4: 'MRC3' }
+let mrcNotifyLastLevel = 0
+watch(
+  () => vehicleStatus.mrcStatus,
+  (level: number | undefined) => {
+    const lv = level != null && Number.isFinite(level) ? Math.round(level) : 0
+    if (lv === mrcNotifyLastLevel) return
+    mrcNotifyLastLevel = lv
+    // 仅 2/3/4 弹通知
+    if (lv < 2) return
+    const label = MRC_LABELS[lv] || `MRC(${lv})`
+    const ts = vehicleStatus.mrcTimestamp
+      ? formatMrcTimestamp(vehicleStatus.mrcTimestamp as number | undefined)
+      : ''
+    const errName = (vehicleStatus.mrcErrorName as string) || label
+    notification.error({
+      key: 'mrc-status',
+      message: `${label}: 不正常`,
+      description: () => h('div', [
+        h('div', `触发来源: ${errName}`),
+        h('div', ts ? `触发时间: ${ts} | 请手动关闭` : '请手动关闭'),
+      ]),
+      duration: 0,
+      placement: 'topRight',
+    })
+  },
+)
 
 const loadVehicle = async (silent = false) => {
   if (!vehicleId.value) return
@@ -2907,6 +3249,17 @@ watch(
   { immediate: true }
 )
 
+// ── MOCK: MRC 通知测试开关（true=每5s轮换弹框，false=走真实数据）──
+const MOCK_MRC_ENABLED = false
+let mockMrcTimer: ReturnType<typeof setInterval> | null = null
+const MOCK_MRC_CYCLE = [
+  { s: 2, n: 'JOYSTICK_IDLE_TIMEOUT' },
+  { s: 3, n: 'CLOUD_LINK_RTT_EXCESSIVE' },
+  { s: 4, n: 'COLLISION_IMMINENT' },
+  { s: 0, n: '' },
+]
+let mockMrcIdx = 0
+
 onMounted(() => {
   loadCockpitDevices()
   document.addEventListener('fullscreenchange', handleFullscreenChange)
@@ -2915,6 +3268,17 @@ onMounted(() => {
     if (saved) selectedCockpitId.value = saved
   } catch (e) {
     // ignore
+  }
+
+  if (MOCK_MRC_ENABLED) {
+    mockMrcIdx = 0
+    mockMrcTimer = setInterval(() => {
+      const item = MOCK_MRC_CYCLE[mockMrcIdx % MOCK_MRC_CYCLE.length]
+      mockMrcIdx++
+      vehicleStatus.mrcStatus = item.s
+      vehicleStatus.mrcErrorName = item.n
+      vehicleStatus.mrcTimestamp = Date.now()
+    }, 5000)
   }
 })
 
@@ -2926,6 +3290,10 @@ onUnmounted(() => {
   if (parallelDrivingWsFlushTimer != null) {
     clearTimeout(parallelDrivingWsFlushTimer)
     parallelDrivingWsFlushTimer = null
+  }
+  if (mockMrcTimer != null) {
+    clearInterval(mockMrcTimer)
+    mockMrcTimer = null
   }
   resetParallelDrivingChassisHud()
   sectionRO?.disconnect()
@@ -3404,6 +3772,129 @@ onUnmounted(() => {
 
 .rc-group-actions {
   gap: 6px;
+}
+
+/* MRC 紧急停车：分段按钮，MRC1/MRC2 用警告/危险色 */
+.rc-group-mrc {
+  gap: 6px;
+}
+
+/* MRC 实时状态徽章（紧挨 radio group，仅 MRC1/MRC2 时显示） */
+.rc-mrc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 22px;
+  white-space: nowrap;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: all 0.2s ease;
+}
+
+.rc-mrc-badge-name {
+  letter-spacing: 0.02em;
+}
+
+.rc-mrc-badge-time {
+  font-weight: 500;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+/* MRC0：提示蓝 */
+.rc-mrc-badge.is-mrc0 {
+  color: #fff;
+  background: rgba(24, 144, 255, 0.72);
+  border: 1.5px solid rgba(24, 144, 255, 0.9);
+  box-shadow: 0 0 16px rgba(24, 144, 255, 0.5), inset 0 1px 0 rgba(255,255,255,0.2);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 3px 12px;
+  animation: rc-mrc-pulse 2s ease-in-out infinite;
+}
+
+@keyframes rc-mrc-pulse {
+  0%, 100% { box-shadow: 0 0 16px rgba(24, 144, 255, 0.5), inset 0 1px 0 rgba(255,255,255,0.2); }
+  50%      { box-shadow: 0 0 28px rgba(24, 144, 255, 0.75), inset 0 1px 0 rgba(255,255,255,0.2); }
+}
+
+/* MRC1：警告橙 */
+.rc-mrc-badge.is-mrc1 {
+  color: #ffa940;
+  background: rgba(250, 140, 22, 0.18);
+  border: 1px solid rgba(250, 140, 22, 0.35);
+  box-shadow: 0 0 10px rgba(250, 140, 22, 0.12);
+}
+
+/* MRC2：危险红 */
+.rc-mrc-badge.is-mrc2 {
+  color: #ff7875;
+  background: rgba(245, 34, 45, 0.2);
+  border: 1px solid rgba(245, 34, 45, 0.4);
+  box-shadow: 0 0 12px rgba(245, 34, 45, 0.15);
+}
+
+/* 正常态：灰色低调 */
+.rc-mrc-badge.is-normal {
+  color: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* 远控工作台暗黑主题下微调 */
+.pd-vehicle-detail-root--remote-focus .rc-mrc-badge.is-mrc1 {
+  color: #ffc069;
+  background: rgba(250, 140, 22, 0.22);
+  border-color: rgba(250, 140, 22, 0.4);
+}
+
+.pd-vehicle-detail-root--remote-focus .rc-mrc-badge.is-mrc2 {
+  color: #ff9c9a;
+  background: rgba(245, 34, 45, 0.26);
+  border-color: rgba(245, 34, 45, 0.48);
+}
+
+.pd-vehicle-detail-root--remote-focus .rc-mrc-badge.is-normal {
+  color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.rc-mrc-radio {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+:deep(.rc-mrc-radio .ant-radio-button-wrapper) {
+  height: 26px;
+  line-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+:deep(.rc-mrc-radio .ant-radio-button-wrapper[value="2"]) {
+  color: #d46b08;
+}
+:deep(.rc-mrc-radio .ant-radio-button-wrapper[value="2"].ant-radio-button-wrapper-checked) {
+  color: #fff;
+  background: #d46b08;
+  border-color: #d46b08;
+}
+
+:deep(.rc-mrc-radio .ant-radio-button-wrapper[value="3"]) {
+  color: #cf1322;
+}
+:deep(.rc-mrc-radio .ant-radio-button-wrapper[value="3"].ant-radio-button-wrapper-checked) {
+  color: #fff;
+  background: #cf1322;
+  border-color: #cf1322;
 }
 
 .rc-group-preflight {
@@ -4872,6 +5363,7 @@ onUnmounted(() => {
  *  └────────┴───────────────┴────────┘  └────────┴───────────────┴────────┘
  */
 .layout-e {
+  position: relative;
   display: flex;
   align-items: center;
   flex: 1;
@@ -5037,7 +5529,7 @@ onUnmounted(() => {
   object-fit: contain;
 }
 
-/* ── 正常状态 (D/N/P)：前=主画面, 后=PiP ── */
+/* ── 中列双层：D=前主后隐, R=后主前隐，WebRTC 双流始终在线 ── */
 .layout-e-layer-front {
   position: absolute;
   inset: 0;
@@ -5045,105 +5537,83 @@ onUnmounted(() => {
 }
 .layout-e-layer-back {
   position: absolute;
-  top: 6px;
-  left: 6px;
-  width: 20%;
-  aspect-ratio: 960 / 768;
-  z-index: 3;
-  border-radius: 4px;
-  border: 1.5px solid rgba(255, 255, 255, 0.25);
-  box-shadow:
-    0 2px 12px rgba(0, 0, 0, 0.7),
-    0 0 0 1px rgba(0, 0, 0, 0.3),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-  background: #000;
+  inset: 0;
+  z-index: 1;
+  display: none;
 }
-.layout-e-layer-back :deep(.video-badge) {
-  font-size: 10px;
-  padding: 1px 4px;
+/* 倒车：交换可见层 */
+.layout-e-center.is-reverse .layout-e-layer-front {
+  display: none;
+}
+.layout-e-center.is-reverse .layout-e-layer-back {
+  display: block;
 }
 
-/* ── 倒车状态 (R)：后=主画面, 前=PiP ── */
-.layout-e-center.is-reverse .layout-e-layer-back {
-  inset: 0;
-  width: auto;
-  aspect-ratio: auto;
-  z-index: 1;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
+/* ── 右列双层：与中列相反，D=后主前隐, R=前主后隐。直接在 layout-e-side-half 内 absolute 叠放，去掉多余 wrapper 避免黑底 ── */
+.layout-e-right-dual-host {
+  position: relative;
   background: transparent;
 }
-.layout-e-center.is-reverse .layout-e-layer-back :deep(.video-badge) {
-  font-size: inherit;
-  padding: inherit;
-}
-.layout-e-center.is-reverse .layout-e-layer-front {
-  inset: auto;
-  top: 6px;
-  left: 6px;
-  width: 20%;
-  aspect-ratio: 960 / 768;
-  z-index: 3;
-  border-radius: 4px;
-  border: 1.5px solid rgba(255, 77, 79, 0.6);
-  box-shadow:
-    0 2px 12px rgba(0, 0, 0, 0.7),
-    0 0 8px rgba(255, 77, 79, 0.15),
-    0 0 0 1px rgba(0, 0, 0, 0.3);
-  background: #000;
-}
-.layout-e-center.is-reverse .layout-e-layer-front :deep(.video-badge) {
-  font-size: 10px;
-  padding: 1px 4px;
-}
-
-/* PiP 内视频紧凑裁剪，主画面 contain */
-.layout-e-layer-back :deep(video) { object-fit: cover; }
-.layout-e-center.is-reverse .layout-e-layer-back :deep(video) { object-fit: contain; }
-.layout-e-center.is-reverse .layout-e-layer-front :deep(video) { object-fit: cover; }
-
-/* ── PiP 档位角标：浮于 PiP 小窗右下角 ── */
-.layout-e-pip-badge {
+.layout-e-right-layer-front,
+.layout-e-right-layer-back {
   position: absolute;
-  z-index: 4;
-  pointer-events: none;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  padding: 2px 5px;
-  border-radius: 2px;
-  color: rgba(255, 255, 255, 0.75);
-  background: rgba(0, 0, 0, 0.6);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
-  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  inset: 0;
+  z-index: 1;
+}
+.layout-e-right-layer-front {
+  display: none;
+}
+.layout-e-right-dual-host.is-reverse .layout-e-right-layer-front {
+  display: block;
+}
+.layout-e-right-dual-host.is-reverse .layout-e-right-layer-back {
+  display: none;
 }
 
-/* 角标仍在 layout-e-center 下、前后层之间时（如车辆详情页）：按 20% PiP 用 calc 定位 */
-.layout-e-center > .layout-e-pip-badge:not(.layout-e-pip-badge--anchored) {
-  top: calc(6px + 20% / 1.25 - 20px);
-  left: calc(6px + 20% - 28px);
+/* ── cam_f_7 辅助前视 PiP：左缘对齐中列左缘，scale(1.5) 溢出 ── */
+.layout-e-layer-f7 {
+  position: absolute;
+  top: 8px;
+  /* 中列左缘 = 左列宽(27% of available) + gap(2px) + padding-left(2px) */
+  left: calc((100% - 8px) * 0.27 + 4px);
+  /* 宽度与 back PiP 一致：中列宽(46%) × 4/15 */
+  width: calc(100% * 0.46 * 4 / 15);
+  aspect-ratio: 960 / 768;
+  z-index: 8;
+  /* 容器仅作定位锚点，透明无边框，video scale 溢出自然浮于主画面上 */
+  background: transparent;
+  overflow: visible;
+  outline: none;
+  transition: none;
+}
+.layout-e-layer-f7 :deep(.video-badge) {
+  /* badge 在 scale 后位置偏了，隐藏 */
+  display: none;
+}
+/* VideoCell 内部 overflow:hidden 需打通，让 scale(1.5) 溢出可见 */
+.layout-e-layer-f7 :deep(.video-box),
+.layout-e-layer-f7 :deep(.video-wrapper) {
+  overflow: visible;
+}
+/* 覆盖播放器黑底：webrtc-player / media-player-container 背景设透明，避免 PiP 容器内出现黑条 */
+.layout-e-layer-f7 :deep(.webrtc-player),
+.layout-e-layer-f7 :deep(.media-player-container) {
+  background: transparent;
+}
+.layout-e-layer-f7 :deep(video) {
+  /* !important 必须：WebRtcPlayer 组件 video 上 objectFit/transform 是内联 style，优先级最高 */
+  object-fit: cover !important;
+  /* scale(1.5) + bottom left → 等比放大，translateY 微调下移盖住容器 */
+  transform-origin: bottom left;
+  transform: scale(1.5) translateY(2px) !important;
 }
 
-/* 角标放在 PiP 视频层内（远控 VehicleRemoteDeck）：相对小窗盒子 right/bottom，改 PiP 宽或勾选前后仍对齐 */
-.layout-e-layer > .layout-e-pip-badge--anchored {
-  top: auto;
-  left: auto;
-  right: 6px;
-  bottom: 6px;
-  z-index: 6;
-}
-.layout-e-pip-badge.is-reverse {
-  color: rgba(255, 77, 79, 0.95);
-  text-shadow: 0 0 6px rgba(255, 77, 79, 0.4);
-}
+/* 视频裁剪 */
+.layout-e-layer :deep(video) { object-fit: contain; }
 
-/* 远控工作台：D/N/P 与 R 切换时左上角 PiP 小窗等比放大约 1/3（20% × 4/3） */
-.pd-remote-focus-deck .layout-e-center:not(.is-reverse) .layout-e-layer-back {
-  width: calc(100% * 4 / 15);
-}
-.pd-remote-focus-deck .layout-e-center.is-reverse .layout-e-layer-front {
-  width: calc(100% * 4 / 15);
+/* 远控工作台 Layout-E 定制 */
+.pd-remote-focus-deck .layout-e-layer-f7 {
+  width: calc(100% * 0.46 * 16 / 45);
 }
 
 /* ── 前视距离引导：与 HUD 同级叠放，须高于 HUD(5) 才能看见；位置与 960×768 内接框由行内对齐 VideoCell ── */
@@ -5166,6 +5636,230 @@ onUnmounted(() => {
   height: 100%;
   z-index: 7;
   pointer-events: none;
+}
+
+/* ── MRC1 可拖动圆形按钮：红色脉冲辉光，可拖拽自由定位 ── */
+.layout-e-mrc1-badge {
+  position: absolute;
+  z-index: 9;
+  cursor: grab;
+  user-select: none;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+.mrc1-circle-btn {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: 3px solid rgba(74, 222, 128, 0.55);
+  background: rgba(34, 197, 94, 0.85);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  cursor: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  outline: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    0 0 14px rgba(34, 197, 94, 0.4),
+    0 0 32px rgba(34, 197, 94, 0.2),
+    0 0 60px rgba(34, 197, 94, 0.08),
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.18);
+  animation:
+    mrc1-active-breath 2.4s ease-in-out infinite,
+    mrc1-active-border 3s ease-in-out infinite;
+  transition: transform 0.18s cubic-bezier(0.25, 0.8, 0.25, 1.4),
+              box-shadow 0.25s ease;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    border: 2.5px solid rgba(74, 222, 128, 0.35);
+    animation: mrc1-active-ripple 2.4s ease-out infinite;
+    pointer-events: none;
+  }
+
+  &::before { display: none; }
+
+  &:hover {
+    transform: scale(1.12);
+    box-shadow:
+      0 0 24px rgba(34, 197, 94, 0.65),
+      0 0 48px rgba(34, 197, 94, 0.3),
+      0 0 80px rgba(34, 197, 94, 0.12),
+      inset 0 2px 0 rgba(255, 255, 255, 0.25);
+  }
+
+  &:active {
+    transform: scale(0.94);
+    transition: transform 0.08s ease;
+  }
+
+  &.is-dragging {
+    transform: scale(1.08);
+    animation: mrc1-drag-glow 0.6s ease-in-out infinite;
+    &::after { animation: none; opacity: 0; }
+  }
+
+  /* MRC1 告警态：红色呼吸 + 光环 + 扫光 */
+  &.is-alarm {
+    background: rgba(220, 38, 38, 0.9);
+    border-color: rgba(248, 113, 113, 0.6);
+    animation:
+      mrc1-breath 2.4s ease-in-out infinite,
+      mrc1-border-glow 3s ease-in-out infinite;
+    &::after {
+      display: block;
+      border-color: rgba(248, 113, 113, 0.45);
+      animation-name: mrc1-ripple;
+    }
+    &::before {
+      display: block;
+      content: '';
+      position: absolute;
+      inset: -3px;
+      border-radius: 50%;
+      background: conic-gradient(
+        from 0deg,
+        transparent 0deg,
+        rgba(255, 255, 255, 0.15) 60deg,
+        transparent 120deg,
+        transparent 360deg
+      );
+      animation: mrc1-sweep 4s linear infinite;
+      pointer-events: none;
+    }
+
+    &:hover {
+      box-shadow:
+        0 0 32px rgba(220, 38, 38, 0.75),
+        0 0 64px rgba(220, 38, 38, 0.4),
+        0 0 100px rgba(220, 38, 38, 0.18),
+        inset 0 2px 0 rgba(255, 255, 255, 0.25),
+        inset 0 -3px 8px rgba(0, 0, 0, 0.25);
+    }
+  }
+}
+.mrc1-circle-icon {
+  position: relative;
+  z-index: 1;
+  line-height: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+/* 告警态文字：呼吸动画 */
+.mrc1-circle-btn.is-alarm .mrc1-circle-icon {
+  animation: mrc1-text-pulse 2.4s ease-in-out infinite;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(180, 0, 0, 0.5);
+}
+
+/* ── 辉光呼吸（3层 box-shadow 深浅交替） ── */
+@keyframes mrc1-breath {
+  0%, 100% {
+    box-shadow:
+      0 0 18px rgba(220, 38, 38, 0.5),
+      0 0 42px rgba(220, 38, 38, 0.28),
+      0 0 80px rgba(220, 38, 38, 0.12),
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.2),
+      inset 0 -2px 6px rgba(0, 0, 0, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 32px rgba(220, 38, 38, 0.72),
+      0 0 64px rgba(220, 38, 38, 0.42),
+      0 0 100px rgba(220, 38, 38, 0.22),
+      0 4px 8px rgba(220, 38, 38, 0.15),
+      inset 0 2px 0 rgba(255, 255, 255, 0.28),
+      inset 0 -3px 8px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* ── 外扩光环：放大 + 淡出 ── */
+@keyframes mrc1-ripple {
+  0%   { inset: -6px;  opacity: 1;    border-width: 2.5px; }
+  50%  { inset: -12px; opacity: 0.45; border-width: 1.5px; }
+  100% { inset: -22px; opacity: 0;    border-width: 0.5px; }
+}
+
+/* ── 边框色呼吸 ── */
+@keyframes mrc1-border-glow {
+  0%, 100% { border-color: rgba(248, 113, 113, 0.55); }
+  50%      { border-color: rgba(255, 140, 140, 0.85); }
+}
+
+/* ── 高光锥旋转 ── */
+@keyframes mrc1-sweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ── 文字微呼吸 ── */
+@keyframes mrc1-text-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.08); }
+}
+
+/* ── 拖拽中简化辉光 ── */
+@keyframes mrc1-drag-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 40px rgba(220, 38, 38, 0.75),
+      0 0 80px rgba(220, 38, 38, 0.4);
+  }
+  50% {
+    box-shadow:
+      0 0 56px rgba(220, 38, 38, 0.9),
+      0 0 100px rgba(220, 38, 38, 0.5);
+  }
+}
+
+/* ── 激活态（正常/绿色）动画 ── */
+@keyframes mrc1-active-breath {
+  0%, 100% {
+    box-shadow:
+      0 0 14px rgba(34, 197, 94, 0.4),
+      0 0 32px rgba(34, 197, 94, 0.2),
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 24px rgba(34, 197, 94, 0.6),
+      0 0 48px rgba(34, 197, 94, 0.3),
+      inset 0 2px 0 rgba(255, 255, 255, 0.25);
+  }
+}
+@keyframes mrc1-active-ripple {
+  0%   { inset: -6px;  opacity: 0.8;  border-width: 2.5px; }
+  50%  { inset: -10px; opacity: 0.35; border-width: 1.5px; }
+  100% { inset: -18px; opacity: 0;    border-width: 0.5px; }
+}
+@keyframes mrc1-active-border {
+  0%, 100% { border-color: rgba(74, 222, 128, 0.5); }
+  50%      { border-color: rgba(134, 239, 172, 0.8); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mrc1-circle-btn,
+  .mrc1-circle-icon,
+  .mrc1-circle-btn.is-alarm::after,
+  .mrc1-circle-btn.is-alarm::before {
+    animation: none !important;
+  }
+  .mrc1-circle-btn::after { opacity: 0; }
+  .mrc1-circle-btn.is-alarm::after { opacity: 0; }
+  .mrc1-circle-btn.is-alarm::before { opacity: 0; }
 }
 
 /* ── HUD 叠加层：独立于视频，始终覆盖主画面 ── */
@@ -5684,6 +6378,95 @@ onUnmounted(() => {
   .rc-group       { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
   .rc-group-fs    { margin-left: auto; }
   .rc-group-actions { gap: 6px; }
+  .rc-group-mrc { gap: 6px; }
+
+  .rc-mrc-radio.ant-radio-group {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px;
+    background: rgba(0, 0, 0, 0.38);
+    border-radius: 8px;
+    border: 1px solid @rc-border;
+    gap: 2px;
+  }
+
+  .rc-mrc-radio .ant-radio-button-wrapper {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 6px !important;
+    color: @rc-text-dim !important;
+    height: 26px !important;
+    line-height: 26px !important;
+    padding: 0 10px !important;
+    font-size: 12px !important;
+    font-weight: 500;
+    transition: all 0.18s ease;
+    &::before { display: none !important; }
+  }
+
+  .rc-mrc-radio .ant-radio-button-wrapper-checked {
+    background: fade(@rc-accent, 18%) !important;
+    color: #fff !important;
+    box-shadow: 0 0 0 1px fade(@rc-accent, 38%) inset !important;
+  }
+
+  /* MRC1：警告色 */
+  .rc-mrc-radio .ant-radio-button-wrapper[value="2"] {
+    color: #ffa940 !important;
+  }
+  .rc-mrc-radio .ant-radio-button-wrapper[value="2"].ant-radio-button-wrapper-checked {
+    background: rgba(250, 140, 22, 0.28) !important;
+    color: #fff !important;
+    box-shadow: 0 0 0 1px rgba(250, 140, 22, 0.48) inset !important;
+  }
+
+  /* MRC2：危险色 */
+  .rc-mrc-radio .ant-radio-button-wrapper[value="3"] {
+    color: #ff7875 !important;
+  }
+  .rc-mrc-radio .ant-radio-button-wrapper[value="3"].ant-radio-button-wrapper-checked {
+    background: rgba(245, 34, 45, 0.32) !important;
+    color: #fff !important;
+    box-shadow: 0 0 0 1px rgba(245, 34, 45, 0.52) inset !important;
+  }
+
+  /* MRC 实时状态徽章（全屏暗黑主题） */
+  .rc-mrc-badge {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .rc-mrc-badge.is-mrc0 {
+    color: #fff;
+    background: rgba(24, 144, 255, 0.78);
+    border: 2px solid rgba(24, 144, 255, 0.95);
+    box-shadow: 0 0 22px rgba(24, 144, 255, 0.55), inset 0 1px 0 rgba(255,255,255,0.2);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 3px 12px;
+    animation: rc-mrc-pulse 2s ease-in-out infinite;
+  }
+
+  .rc-mrc-badge.is-mrc1 {
+    color: #ffc069;
+    background: rgba(250, 140, 22, 0.24);
+    border: 1px solid rgba(250, 140, 22, 0.42);
+    box-shadow: 0 0 14px rgba(250, 140, 22, 0.14);
+  }
+
+  .rc-mrc-badge.is-mrc2 {
+    color: #ff9c9a;
+    background: rgba(245, 34, 45, 0.28);
+    border: 1px solid rgba(245, 34, 45, 0.5);
+    box-shadow: 0 0 16px rgba(245, 34, 45, 0.18);
+  }
+
+  .rc-mrc-badge.is-normal {
+    color: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
   .rc-group-video { flex-wrap: wrap; row-gap: 4px; align-items: center; }
   .rc-group-preflight { align-items: flex-start; }
   .rc-preflight-name,
@@ -6036,4 +6819,77 @@ onUnmounted(() => {
   align-items: center;
 }
 
+/* ── MRC 确认弹框：暗黑驾驶仓主题（Modal.confirm 专用选择器）── */
+.pd-mrc-confirm-dark {
+  .ant-modal-content {
+    background: #141820 !important;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  }
+  .ant-modal-confirm-body .ant-modal-confirm-title {
+    color: rgba(255, 255, 255, 0.95) !important;
+    font-weight: 600;
+  }
+  .ant-modal-confirm-body .ant-modal-confirm-content {
+    color: rgba(255, 255, 255, 0.75) !important;
+    margin-top: 8px;
+  }
+  .ant-modal-confirm-body .anticon {
+    color: #fa8c16;
+  }
+  .ant-modal-confirm-btns {
+    margin-top: 20px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .ant-btn {
+    border-radius: 8px;
+    height: 34px;
+    padding: 0 18px;
+    font-weight: 500;
+    transition: all 0.18s ease;
+  }
+  .ant-btn-default {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.78);
+    &:hover {
+      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(255, 255, 255, 0.24);
+      color: #fff;
+    }
+  }
+  .ant-btn-primary {
+    background: #5b8cff;
+    border-color: #5b8cff;
+    box-shadow: 0 2px 8px rgba(91, 140, 255, 0.3);
+    &:hover {
+      background: #7aa3ff;
+      border-color: #7aa3ff;
+    }
+  }
+  .ant-btn-dangerous {
+    background: rgba(245, 86, 74, 0.18);
+    border-color: rgba(245, 86, 74, 0.4);
+    color: #ffa39e;
+    &:hover {
+      background: rgba(245, 86, 74, 0.28);
+      border-color: rgba(245, 86, 74, 0.55);
+      color: #fff;
+    }
+  }
+}
+
+/* cam_f_7 PiP：非 scoped 全局覆盖，穿透 WebRtcPlayer 内联 style */
+.layout-e-layer-f7 video {
+  object-fit: cover !important;
+  transform-origin: bottom left;
+  transform: scale(1.5) translateY(2px) !important;
+}
+/* PiP 太小，码率 badge 不好定位，隐藏 */
+.layout-e-layer-f7 .webrtc-top-bar {
+  display: none !important;
+}
 </style>

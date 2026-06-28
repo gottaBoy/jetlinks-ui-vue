@@ -53,6 +53,7 @@
         <div class="ws-row"><span class="ws-label">Jitter</span><span class="ws-value">{{ statsDisplay.jitter }}</span></div>
         <div class="ws-row"><span class="ws-label">Bitrate</span><span class="ws-value">{{ statsDisplay.bitrate }}</span></div>
         <div class="ws-row"><span class="ws-label">Loss</span><span class="ws-value" :class="statsDisplay.lossClass">{{ statsDisplay.loss }}</span></div>
+        <div class="ws-row"><span class="ws-label">Layer</span><span class="ws-value">{{ abrLayerDisplay }}</span></div>
         <div class="ws-row"><span class="ws-label">Res</span><span class="ws-value">{{ statsDisplay.resolution }}</span></div>
         <div class="ws-row"><span class="ws-label">Codec</span><span class="ws-value">{{ statsDisplay.codec }}</span></div>
         <div class="ws-row"><span class="ws-label">Decoder</span><span class="ws-value" :class="videoToolboxWarning ? 'ws-warn' : ''">{{ statsDisplay.decoder }}</span></div>
@@ -85,6 +86,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { createAdaptiveStream, type AbrLayer, ABR_PRESETS } from './useAdaptiveStream'
 
 const { t } = useI18n()
 
@@ -127,6 +129,15 @@ const props = withDefaults(
      * 180° rotation — the natural orientation for rear hitch cameras (driver's-eye view).
      */
     flipVertical?: boolean
+    /**
+     * 自适应码率：可用层级列表 ['_high','_mid','_low']。
+     * 提供后组件内部根据丢包率自动切换层级，无需上层管理。
+     */
+    abrLayers?: string[]
+    /**
+     * ABR 策略预设：critical(前视) | high(后视) | normal(侧视) | low(挂后)
+     */
+    abrPreset?: keyof typeof ABR_PRESETS
   }>(),
   { liveOnly: true, showCloudLinkRtt: false, fastVideoRecovery: false, mirror: false, flipVertical: false }
 )
@@ -138,6 +149,77 @@ const videoFlipTransform = computed(() => {
   if (props.flipVertical) parts.push('scaleY(-1)')
   return parts.length ? parts.join(' ') : undefined
 })
+
+// ── Adaptive Bitrate (ABR) ──
+const abrLayersTyped = computed<AbrLayer[] | null>(() => {
+  if (!props.abrLayers || props.abrLayers.length === 0) return null
+  return props.abrLayers as AbrLayer[]
+})
+
+const abrInstance = computed(() => {
+  if (!abrLayersTyped.value) return null
+  return createAdaptiveStream(props.abrPreset ?? 'normal', abrLayersTyped.value)
+})
+
+/** 当前 ABR 激活的层级后缀（e.g. '_high'），无 ABR 时为空字符串 */
+const abrCurrentLayer = ref<AbrLayer>(abrLayersTyped.value?.[0] ?? '_high')
+
+/** 提供给播放器的实际流名（含 ABR 层级后缀） */
+const effectiveStream = computed(() => {
+  if (!abrLayersTyped.value) return props.stream
+  return `${props.stream}${abrCurrentLayer.value}`
+})
+
+/** ABR 切换日志（供上层展示） */
+const abrLastSwitchReason = ref<string | null>(null)
+
+/** Stats 面板 ABR 层级展示 */
+const abrLayerDisplay = computed(() => {
+  if (!abrLayersTyped.value) return 'Default'
+  const map: Record<string, string> = { _high: 'High', _mid: 'Mid', _low: 'Low' }
+  return map[abrCurrentLayer.value] ?? abrCurrentLayer.value
+})
+
+let _abrStatsAccumulator: { lost: number; received: number } = { lost: 0, received: 0 }
+let _abrFeedTimer: ReturnType<typeof setInterval> | null = null
+
+const startAbrMonitor = () => {
+  const abr = abrInstance.value
+  if (!abr || !abrLayersTyped.value) return
+  _abrStatsAccumulator = { lost: 0, received: 0 }
+  abr.onLayerChange((newLayer, prev, reason) => {
+    abrCurrentLayer.value = newLayer
+    abrLastSwitchReason.value = `ABR: ${prev}→${newLayer} (${reason})`
+    console.info('[ABR]', abrLastSwitchReason.value, `loss=${abr.getState().lossRate.toFixed(1)}%`)
+  })
+  _abrFeedTimer = setInterval(() => {
+    const acc = _abrStatsAccumulator
+    const result = abr.feedStats({ packetsLost: acc.lost, packetsReceived: acc.received }, props.stream)
+    if (result) {
+      // 不立即重连（远控场景黑屏不可接受），层级已在 onLayerChange 中更新，
+      // 下次自然重连（ICE 失败/stream lost 等）时 effectiveStream 会自动使用新层级。
+      console.info('[ABR]', `defer switch to ${result} — will apply on next reconnect`)
+    }
+    acc.lost = 0
+    acc.received = 0
+  }, 2000)
+}
+
+const stopAbrMonitor = () => {
+  if (_abrFeedTimer) {
+    clearInterval(_abrFeedTimer)
+    _abrFeedTimer = null
+  }
+  _abrStatsAccumulator = { lost: 0, received: 0 }
+  abrLastSwitchReason.value = null
+}
+
+/** 在 getStats 采集时累加丢包数据供 ABR 判断 */
+const feedAbrAccumulator = (lost: number, received: number) => {
+  if (!abrInstance.value) return
+  _abrStatsAccumulator.lost += lost
+  _abrStatsAccumulator.received += received
+}
 
 const cloudLinkRttText = computed(() => {
   const v = props.cloudLinkNetworkRttMs
@@ -632,6 +714,7 @@ const stopStatsMonitor = () => {
     clearInterval(statsTimer)
     statsTimer = null
   }
+  stopAbrMonitor()
   resetInboundStreakState()
   _stopSummaryLog()
   // 重置速率状态，避免重连后显示上一会话的残留数据
@@ -644,6 +727,7 @@ const startStatsMonitor = () => {
   if (!pc || statsTimer) return
   lastBytes = 0
   lastTime = Date.now()
+  startAbrMonitor()
   _startSummaryLog(props.stream ?? props.app ?? 'unknown')
 
   statsTimer = setInterval(async () => {
@@ -694,6 +778,9 @@ const startStatsMonitor = () => {
       lastTime = now
 
       rtcStats.value = { ...rtcStats.value, ...patch }
+
+      // Feed ABR accumulator with this tick's packet stats
+      feedAbrAccumulator(patch.packetsLost ?? 0, patch.packetsReceived ?? 0)
 
       // 增量速率计算（利用现有 patch 数据，不额外读取 stats）
       {
@@ -1003,7 +1090,7 @@ const play = async () => {
       })
     }
 
-    const url = `${props.baseUrl.replace(/\/$/, '')}/index/api/webrtc?app=${encodeURIComponent(props.app)}&stream=${encodeURIComponent(props.stream)}&type=play`
+    const url = `${props.baseUrl.replace(/\/$/, '')}/index/api/webrtc?app=${encodeURIComponent(props.app)}&stream=${encodeURIComponent(effectiveStream.value)}&type=play`
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -1165,6 +1252,9 @@ const stop = () => {
   // （softStop 软重拉路径不重置，以防止 vtb_vp8_switch 在同一会话内循环触发。）
   triedVp8Preference = false
   vtbVp8SwitchScheduled = false
+  // 重置 ABR 到最高层级
+  abrCurrentLayer.value = abrLayersTyped.value?.[0] ?? '_high'
+  stopAbrMonitor()
   softStop()
   stopElapsedTimer()
   containFrameInset.value = null

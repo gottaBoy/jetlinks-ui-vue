@@ -22,6 +22,8 @@
         :fast-video-recovery="fastVideoRecovery"
         :mirror="mirrorEffective"
         :flip-vertical="flipVertical"
+        :abr-layers="abrLayers"
+        :abr-preset="abrPreset"
       />
       <Player
         v-else-if="url"
@@ -98,6 +100,10 @@ const props = withDefaults(
     mirror?: boolean
     /** 垂直翻转。与 mirror 同开即 180° 旋转（挂后摄像头的司机最佳视角）。 */
     flipVertical?: boolean
+    /** 自适应码率层级列表，e.g. ['_high','_mid','_low'] */
+    abrLayers?: string[]
+    /** ABR 策略预设 */
+    abrPreset?: 'critical' | 'high' | 'normal' | 'low'
   }>(),
   {
     showDistanceGuide: true,
