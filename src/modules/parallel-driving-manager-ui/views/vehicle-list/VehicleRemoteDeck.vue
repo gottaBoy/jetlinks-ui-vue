@@ -145,7 +145,6 @@
                   <a-checkbox value="left">{{ $t('parallel-driving.vehicle-detail.video-left') }}</a-checkbox>
                   <a-checkbox value="right">{{ $t('parallel-driving.vehicle-detail.video-right') }}</a-checkbox>
                   <a-checkbox value="right">{{ $t('parallel-driving.vehicle-detail.video-right') }}</a-checkbox>
-                  cam_f_7
                 </a-checkbox-group>
                 <!-- <a-checkbox
                   v-model:checked="showRearHitchCams"
@@ -1897,11 +1896,17 @@ const readMrc1Pos = (): { top: string; left: string } => {
     const raw = localStorage.getItem(MRC1_POS_LS_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      // 旧版存储 right，新版改为 left：迁移兼容
-      if (parsed.right && !parsed.left) {
-        return { top: parsed.top || '12px', left: parsed.right }
+      // 旧版存储 right（中列坐标系），容器已变为右列 left，直接重置默认
+      if (parsed.right != null && parsed.left == null) {
+        return { top: '12px', left: '12px' }
       }
-      return { top: parsed.top || '12px', left: parsed.left || '12px' }
+      const top = parsed.top || '12px'
+      const left = parsed.left || '12px'
+      // 坐标明显不对（从旧容器带过来的值），重置
+      if (parseInt(left) > 60 || parseInt(top) > 60) {
+        return { top: '12px', left: '12px' }
+      }
+      return { top, left }
     }
   } catch { /* ignore */ }
   return { top: '12px', left: '12px' }
@@ -2092,6 +2097,7 @@ const POLL_INTERVAL = 5000 // 5秒轮询一次，更新在线状态和远控状�
 const VIDEO_CONFIG = {
   // ZLM 流媒体服务器地址
   baseUrl: 'http://10.7.30.44',
+  // baseUrl: 'http://100.65.210.220',
   protocol: 'webrtc' as 'webrtc' | 'm3u8' | 'flv',
   streams: {
     front: 'cam_f_12',

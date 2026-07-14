@@ -1,11 +1,12 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
 # Get nameservers from /etc/resolv.conf
 NAMESERVERS=$(grep "^nameserver" /etc/resolv.conf | awk '{print $2}' | tr '\n' ' ')
 
 # Set default API_BASE_PATH if not provided
 if [ -z "$API_BASE_PATH" ]; then
-    API_BASE_PATH="http://10.7.30.44:8848/"
+   # API_BASE_PATH="http://10.7.30.44:8848/"
+    API_BASE_PATH="http://10.7.20.145:8848/"
 fi
 
 # Update resolver line in nginx config
